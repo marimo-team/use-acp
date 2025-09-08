@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+env:
+  CLICOLOR: 1
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ⎔ Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: ⎔ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 📥 Install dependencies
+        run: pnpm install --ignore-scripts --frozen-lockfile
+
+      - name: 🔍 Type Check
+        run: pnpm run typecheck
+
+      - name: 🧪 Test
+        run: pnpm run test
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 🔍 Run CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript
+
+      - name: 🔍 Perform Analysis
+        uses: github/codeql-action/analyze@v3
+
+
+  spelling:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 🔍 Spell Check Repo
+        uses: crate-ci/typos@v1.35.1

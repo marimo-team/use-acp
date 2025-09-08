@@ -1,0 +1,7 @@
+node_modules
+coverage
+src/**.js
+scripts/**.js
+dist
+.DS_Store
+!.vscode

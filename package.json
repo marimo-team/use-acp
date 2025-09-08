@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "use-acp",
+  "version": "0.1.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "description": "React hooks for Agent Client Protocol",
+  "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/marimo-team/use-acp"
+  },
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check --write",
+    "test": "vitest",
+    "demo": "vite build",
+    "build": "tsc",
+    "prepublishOnly": "pnpm run typecheck && pnpm run test && pnpm run build",
+    "release": "pnpm version",
+    "pre-commit": "lint-staged"
+  },
+  "keywords": [
+    "acp",
+    "agents",
+    "ai"
+  ],
+  "license": "Apache-2.0",
+  "peerDependencies": {
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.1.3",
+    "@types/node": "^24.3.1",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "@vitest/coverage-v8": "3.2.4",
+    "husky": "^9.1.7",
+    "jsdom": "^26.0.0",
+    "lint-staged": "^16.0.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "streamdown": "^1.2.0",
+    "typescript": "^5.7.3",
+    "vite": "^7.0.0",
+    "vitest": "^3.0.5"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "type": "module",
+  "engines": {
+    "node": "*"
+  },
+  "module": "./dist/index.js",
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "biome check --write",
+      "biome format --write",
+      "vitest related --run"
+    ]
+  },
+  "dependencies": {
+    "@zed-industries/agent-client-protocol": "^0.1.2",
+    "zustand": "^5.0.2"
+  }
+}
