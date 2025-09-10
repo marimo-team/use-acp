@@ -13,6 +13,86 @@ export interface WebSocketManagerOptions {
   reconnectDelay?: number;
 }
 
+export interface MultiWebSocketManagerOptions {
+  onConnectionStateChange: (state: ConnectionState, url: string) => void;
+  onError: (error: Error, url: string) => void;
+  reconnectAttempts?: number;
+  reconnectDelay?: number;
+}
+
+export class MultiWebSocketManager {
+  private managers = new Map<string, WebSocketManager>();
+  private options: MultiWebSocketManagerOptions;
+  private currentUrl: string | null = null;
+
+  constructor(options: MultiWebSocketManagerOptions) {
+    this.options = options;
+  }
+
+  async connect(
+    url: string,
+  ): Promise<{ readable: NodeReadableStream; writable: WritableStream<Uint8Array> }> {
+    this.currentUrl = url;
+
+    let manager = this.managers.get(url);
+
+    if (manager) {
+      const state = manager.getConnectionState();
+      if (state === "connected") {
+        const streams = manager.getStreams();
+        if (streams) {
+          return streams;
+        }
+      }
+    } else {
+      manager = new WebSocketManager({
+        url,
+        onConnectionStateChange: (state) => this.options.onConnectionStateChange(state, url),
+        onError: (error) => this.options.onError(error, url),
+        reconnectAttempts: this.options.reconnectAttempts,
+        reconnectDelay: this.options.reconnectDelay,
+      });
+      this.managers.set(url, manager);
+    }
+
+    return await manager.connect();
+  }
+
+  disconnect(url?: string) {
+    if (url) {
+      const manager = this.managers.get(url);
+      if (manager) {
+        manager.disconnect();
+        this.managers.delete(url);
+      }
+    } else {
+      for (const [managerUrl, manager] of this.managers.entries()) {
+        manager.disconnect();
+        this.managers.delete(managerUrl);
+      }
+      this.currentUrl = null;
+    }
+  }
+
+  getCurrentUrl(): string | null {
+    return this.currentUrl;
+  }
+
+  getConnectionState(url?: string): ConnectionState["status"] {
+    const targetUrl = url || this.currentUrl;
+    if (!targetUrl) return "disconnected";
+
+    const manager = this.managers.get(targetUrl);
+    return manager ? manager.getConnectionState() : "disconnected";
+  }
+
+  getActiveConnections(): string[] {
+    return Array.from(this.managers.keys()).filter(
+      (url) => this.managers.get(url)?.getConnectionState() === "connected",
+    );
+  }
+}
+
 export class WebSocketManager {
   private ws: WebSocket | null = null;
   private options: WebSocketManagerOptions;
@@ -131,5 +211,15 @@ export class WebSocketManager {
       default:
         return "error";
     }
+  }
+
+  getStreams(): { readable: NodeReadableStream; writable: WritableStream<Uint8Array> } | null {
+    if (this.readableStream && this.writableStream) {
+      return {
+        readable: this.readableStream,
+        writable: this.writableStream,
+      };
+    }
+    return null;
   }
 }

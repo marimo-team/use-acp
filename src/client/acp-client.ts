@@ -5,6 +5,7 @@ import type {
   Client,
   InitializeRequest,
   InitializeResponse,
+  LoadSessionRequest,
   NewSessionRequest,
   NewSessionResponse,
   PromptRequest,
@@ -90,17 +91,23 @@ export class AcpClient implements Client {
   }
 }
 
+type RequiredAgent = Required<Agent>;
+
 type ListeningAgentCallbacks = {
-  // biome-ignore lint/suspicious/noExplicitAny: any for typing
-  [K in keyof Agent as `on_${string & K}_response`]: Agent[K] extends (...args: any[]) => infer R
-    ? (response: Awaited<R>) => void
+  [K in keyof RequiredAgent as `on_${string & K}_response`]: RequiredAgent[K] extends (
+    // biome-ignore lint/suspicious/noExplicitAny: any for typing
+    ...args: any[]
+  ) => infer R
+    ? (response: Awaited<R>, request: Parameters<RequiredAgent[K]>[0]) => void
     : never;
 } & {
-  // biome-ignore lint/suspicious/noExplicitAny: any for typing
-  [K in keyof Agent as `on_${string & K}_start`]: Agent[K] extends (...args: any[]) => unknown
-    ? (request: Parameters<Agent[K]>[0]) => void
+  [K in keyof RequiredAgent as `on_${string & K}_start`]: RequiredAgent[K] extends (
+    // biome-ignore lint/suspicious/noExplicitAny: any for typing
+    ...args: any[]
+  ) => unknown
+    ? (request: Parameters<RequiredAgent[K]>[0]) => void
     : never;
-};
+} & {};
 
 export class ListeningAgent implements Agent {
   constructor(
@@ -111,34 +118,45 @@ export class ListeningAgent implements Agent {
   async initialize(params: InitializeRequest): Promise<InitializeResponse> {
     this.callbacks.on_initialize_start?.(params);
     return this.agent.initialize(params).then((response) => {
-      this.callbacks.on_initialize_response?.(response);
+      this.callbacks.on_initialize_response?.(response, params);
       return response;
     });
   }
   async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
     this.callbacks.on_newSession_start?.(params);
     return this.agent.newSession(params).then((response) => {
-      this.callbacks.on_newSession_response?.(response);
+      this.callbacks.on_newSession_response?.(response, params);
       return response;
     });
   }
+
+  async loadSession(params: LoadSessionRequest): Promise<void> {
+    this.callbacks.on_loadSession_start?.(params);
+    if (this.agent.loadSession) {
+      return this.agent.loadSession(params).then(() => {
+        this.callbacks.on_loadSession_response?.(undefined, params);
+      });
+    }
+    throw new Error("Agent does not support loadSession capability");
+  }
+
   async authenticate(params: AuthenticateRequest): Promise<void> {
     this.callbacks.on_authenticate_start?.(params);
     return this.agent.authenticate(params).then(() => {
-      this.callbacks.on_authenticate_response?.(undefined);
+      this.callbacks.on_authenticate_response?.(undefined, params);
     });
   }
   async prompt(params: PromptRequest): Promise<PromptResponse> {
     this.callbacks.on_prompt_start?.(params);
     return this.agent.prompt(params).then((response) => {
-      this.callbacks.on_prompt_response?.(response);
+      this.callbacks.on_prompt_response?.(response, params);
       return response;
     });
   }
   async cancel(params: CancelNotification): Promise<void> {
     this.callbacks.on_cancel_start?.(params);
     return this.agent.cancel(params).then(() => {
-      this.callbacks.on_cancel_response?.(undefined);
+      this.callbacks.on_cancel_response?.(undefined, params);
     });
   }
 }

@@ -1,6 +1,8 @@
 import {
   type Agent,
+  type AgentCapabilities,
   ClientSideConnection,
+  type McpServer,
   type RequestPermissionResponse,
   type SessionNotification,
 } from "@zed-industries/agent-client-protocol";
@@ -10,9 +12,14 @@ import {
   type IdentifiedPermissionRequest,
   ListeningAgent,
 } from "../client/acp-client.js";
-import { WebSocketManager } from "../connection/websocket-manager.js";
+import { MultiWebSocketManager } from "../connection/websocket-manager.js";
 import { useAcpStore } from "../state/atoms.js";
-import type { ConnectionState, NotificationEvent } from "../state/types.js";
+import type {
+  ConnectionState,
+  ConnectionUrl,
+  NotificationEvent,
+  SessionId,
+} from "../state/types.js";
 import { useEventCallback } from "./use-event-callback.js";
 
 export interface UseAcpClientOptions {
@@ -22,8 +29,12 @@ export interface UseAcpClientOptions {
   reconnectAttempts?: number;
   reconnectDelay?: number;
 
-  // Defaults
+  // Session management
   initialSessionId?: string | null;
+  sessionParams?: {
+    cwd?: string;
+    mcpServers?: McpServer[];
+  };
 }
 
 export interface UseAcpClientReturn {
@@ -33,8 +44,10 @@ export interface UseAcpClientReturn {
   connectionState: ConnectionState;
 
   // State management
+  activeSessionId: SessionId | null;
   notifications: NotificationEvent[];
   clearNotifications: () => void;
+  isSessionLoading: boolean;
 
   // Permission handling
   pendingPermission: IdentifiedPermissionRequest | null;
@@ -43,6 +56,7 @@ export interface UseAcpClientReturn {
 
   // ACP connection
   agent: Agent | null;
+  agentCapabilities: AgentCapabilities | null;
 }
 
 export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
@@ -50,8 +64,10 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
     connectionState,
     notifications,
     activeSessionId,
+    agentCapabilities,
     setActiveSessionId,
-    setConnectionState,
+    setConnection,
+    setActiveConnection,
     addNotification,
     clearNotifications,
   } = useAcpStore();
@@ -61,21 +77,26 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
     null,
   );
   const [agent, setAgent] = useState<Agent | null>(null);
+  const [isSessionLoading, setIsSessionLoading] = useState(false);
 
   // Refs
-  const wsManagerRef = useRef<WebSocketManager | null>(null);
+  const multiWsManagerRef = useRef<MultiWebSocketManager | null>(null);
   const acpClientRef = useRef<AcpClient | null>(null);
+  const lastProcessedSessionId = useRef<SessionId | null>(null);
+  const sessionCreationInProgress = useRef<boolean>(false);
 
   // Handlers
-  const handleConnectionStateChange = useEventCallback((state: ConnectionState) => {
-    setConnectionState(state);
-    addNotification({
-      type: "connection_change",
-      data: state,
-    });
-  });
+  const handleConnectionStateChange = useEventCallback(
+    (state: ConnectionState, url: ConnectionUrl) => {
+      setConnection(url, state);
+      addNotification({
+        type: "connection_change",
+        data: state,
+      });
+    },
+  );
 
-  const handleError = useEventCallback((error: Error) => {
+  const handleError = useEventCallback((error: Error, _url: ConnectionUrl) => {
     addNotification({
       type: "error",
       data: error,
@@ -94,78 +115,88 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
   });
 
   const connect = useEventCallback(async () => {
-    if (
-      wsManagerRef.current ||
-      connectionState.status === "connecting" ||
-      connectionState.status === "connected"
-    ) {
-      return;
+    if (!multiWsManagerRef.current) {
+      multiWsManagerRef.current = new MultiWebSocketManager({
+        onConnectionStateChange: handleConnectionStateChange,
+        onError: handleError,
+        reconnectAttempts: options.reconnectAttempts,
+        reconnectDelay: options.reconnectDelay,
+      });
     }
 
-    const wsManager = new WebSocketManager({
-      url: options.wsUrl,
-      onConnectionStateChange: handleConnectionStateChange,
-      onError: handleError,
-      reconnectAttempts: options.reconnectAttempts,
-      reconnectDelay: options.reconnectDelay,
+    setActiveConnection(options.wsUrl);
+    const { readable, writable } = await multiWsManagerRef.current.connect(options.wsUrl);
+
+    // Initialize the connection
+    const agent = new ClientSideConnection(
+      (agent) => {
+        // Initialize the ACP client
+        const acpClient = new AcpClient(agent, {
+          onRequestPermission: handleRequestPermission,
+          onSessionNotification: handleSessionNotification,
+        });
+        acpClientRef.current = acpClient;
+        return acpClient;
+      },
+      writable,
+      readable,
+    );
+
+    const listeningAgent: Agent = new ListeningAgent(agent, {
+      on_initialize_response: (response) => {
+        const capabilities = response.agentCapabilities;
+        console.log("[acp] Agent capabilities", capabilities);
+        setConnection(options.wsUrl, connectionState, capabilities);
+      },
+      on_newSession_response: (response) => {
+        console.log("[acp] New session created", response);
+        setActiveSessionId(response.sessionId as SessionId);
+      },
+      on_loadSession_response: (_, params) => {
+        console.log("[acp] Session resumed", params);
+        setActiveSessionId(params.sessionId as SessionId);
+      },
+      on_prompt_start: (params) => {
+        for (const prompt of params.prompt) {
+          addNotification({
+            type: "session_notification",
+            data: {
+              sessionId: params.sessionId,
+              update: {
+                sessionUpdate: "user_message_chunk",
+                content: prompt,
+              },
+            },
+          });
+        }
+      },
     });
 
-    wsManagerRef.current = wsManager;
-
-    try {
-      const { readable, writable } = await wsManager.connect();
-
-      // Initialize the connection
-      const agent = new ClientSideConnection(
-        (agent) => {
-          // Initialize the ACP client
-          const acpClient = new AcpClient(agent, {
-            onRequestPermission: handleRequestPermission,
-            onSessionNotification: handleSessionNotification,
-          });
-          acpClientRef.current = acpClient;
-          return acpClient;
-        },
-        writable,
-        readable,
-      );
-
-      const listeningAgent: Agent = new ListeningAgent(agent, {
-        on_newSession_response: (response) => {
-          setActiveSessionId(response.sessionId);
-        },
-        on_prompt_start: (params) => {
-          for (const prompt of params.prompt) {
-            addNotification({
-              type: "session_notification",
-              data: {
-                sessionId: params.sessionId,
-                update: {
-                  sessionUpdate: "user_message_chunk",
-                  content: prompt,
-                },
-              },
-            });
-          }
-        },
-      });
-
-      setAgent(listeningAgent);
-    } catch (error) {
-      wsManagerRef.current = null;
-      throw error;
-    }
+    setAgent(listeningAgent);
   });
 
-  const disconnect = useEventCallback(() => {
-    if (wsManagerRef.current) {
-      wsManagerRef.current.disconnect();
-      wsManagerRef.current = null;
+  const disconnect = useEventCallback((url?: ConnectionUrl) => {
+    const targetUrl = url || options.wsUrl;
+
+    if (multiWsManagerRef.current) {
+      if (url) {
+        multiWsManagerRef.current.disconnect(url);
+      } else {
+        // Disconnect the current URL specifically instead of all connections
+        multiWsManagerRef.current.disconnect(targetUrl);
+        multiWsManagerRef.current = null;
+        acpClientRef.current = null;
+        setAgent(null);
+      }
     }
 
-    acpClientRef.current = null;
-    setAgent(null);
-    setPendingPermission(null);
+    if (!url) {
+      setPendingPermission(null);
+      // Reset session creation safeguards on full disconnect
+      sessionCreationInProgress.current = false;
+      lastProcessedSessionId.current = null;
+      setIsSessionLoading(false);
+    }
   });
 
   const resolvePermission = useEventCallback((response: RequestPermissionResponse) => {
@@ -188,15 +219,6 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
     setPendingPermission(null);
   });
 
-  // Effects
-
-  // Update active session id if it changes externally
-  useEffect(() => {
-    if (options.initialSessionId) {
-      setActiveSessionId(options.initialSessionId);
-    }
-  }, [options.initialSessionId, setActiveSessionId]);
-
   // Auto-connect on mount if specified
   // biome-ignore lint/correctness/useExhaustiveDependencies: Don't include connect/disconnect to avoid re-connecting on every render
   useEffect(() => {
@@ -213,11 +235,14 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
     connect,
     disconnect,
     connectionState,
+    activeSessionId,
     notifications: activeSessionId ? notifications[activeSessionId] || [] : [],
+    isSessionLoading,
     clearNotifications,
     pendingPermission,
     resolvePermission,
     rejectPermission: rejectPermissionCallback,
     agent: agent,
+    agentCapabilities,
   };
 }
