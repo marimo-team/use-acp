@@ -9,6 +9,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import {
   AcpClient,
+  type AcpClientOptions,
   type IdentifiedPermissionRequest,
   ListeningAgent,
 } from "../client/acp-client.js";
@@ -28,6 +29,9 @@ export interface UseAcpClientOptions {
   autoConnect?: boolean;
   reconnectAttempts?: number;
   reconnectDelay?: number;
+
+  // Client options
+  clientOptions?: Partial<AcpClientOptions>;
 
   // Session management
   initialSessionId?: string | null;
@@ -132,8 +136,15 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
       (agent) => {
         // Initialize the ACP client
         const acpClient = new AcpClient(agent, {
-          onRequestPermission: handleRequestPermission,
-          onSessionNotification: handleSessionNotification,
+          ...options.clientOptions,
+          onRequestPermission: (params) => {
+            options.clientOptions?.onRequestPermission?.(params);
+            handleRequestPermission(params);
+          },
+          onSessionNotification: (params) => {
+            options.clientOptions?.onSessionNotification?.(params);
+            handleSessionNotification(params);
+          },
         });
         acpClientRef.current = acpClient;
         return acpClient;

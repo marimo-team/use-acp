@@ -23,8 +23,8 @@ import { Deferred } from "../utils/deferred.js";
 export interface AcpClientOptions {
   onRequestPermission: (params: IdentifiedPermissionRequest) => void;
   onSessionNotification: (params: SessionNotification) => void;
-  onReadTextFile?: (params: ReadTextFileRequest) => Promise<ReadTextFileResponse>;
-  onWriteTextFile?: (params: WriteTextFileRequest) => Promise<WriteTextFileResponse>;
+  readTextFile?: (params: ReadTextFileRequest) => Promise<ReadTextFileResponse>;
+  writeTextFile?: (params: WriteTextFileRequest) => Promise<WriteTextFileResponse>;
 }
 
 export interface IdentifiedPermissionRequest extends RequestPermissionRequest {
@@ -51,15 +51,15 @@ export class AcpClient implements Client {
   }
 
   async writeTextFile(params: WriteTextFileRequest): Promise<WriteTextFileResponse> {
-    if (this.options.onWriteTextFile) {
-      return this.options.onWriteTextFile(params);
+    if (this.options.writeTextFile) {
+      return this.options.writeTextFile(params);
     }
     throw new Error("Write text file handler not implemented");
   }
 
   async readTextFile(params: ReadTextFileRequest): Promise<ReadTextFileResponse> {
-    if (this.options.onReadTextFile) {
-      return this.options.onReadTextFile(params);
+    if (this.options.readTextFile) {
+      return this.options.readTextFile(params);
     }
     throw new Error("Read text file handler not implemented");
   }
