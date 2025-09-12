@@ -65,7 +65,15 @@ export interface UseAcpClientReturn {
 
 export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
   const {
-    connectionState,
+    wsUrl,
+    autoConnect = true,
+    reconnectAttempts = 3,
+    reconnectDelay = 2000,
+    clientOptions = {},
+  } = options;
+
+  const {
+    getConnection,
     notifications,
     activeSessionId,
     agentCapabilities,
@@ -123,26 +131,26 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
       multiWsManagerRef.current = new MultiWebSocketManager({
         onConnectionStateChange: handleConnectionStateChange,
         onError: handleError,
-        reconnectAttempts: options.reconnectAttempts,
-        reconnectDelay: options.reconnectDelay,
+        reconnectAttempts: reconnectAttempts,
+        reconnectDelay: reconnectDelay,
       });
     }
 
-    setActiveConnection(options.wsUrl);
-    const { readable, writable } = await multiWsManagerRef.current.connect(options.wsUrl);
+    setActiveConnection(wsUrl);
+    const { readable, writable } = await multiWsManagerRef.current.connect(wsUrl);
 
     // Initialize the connection
     const agent = new ClientSideConnection(
       (agent) => {
         // Initialize the ACP client
         const acpClient = new AcpClient(agent, {
-          ...options.clientOptions,
+          ...clientOptions,
           onRequestPermission: (params) => {
-            options.clientOptions?.onRequestPermission?.(params);
+            clientOptions?.onRequestPermission?.(params);
             handleRequestPermission(params);
           },
           onSessionNotification: (params) => {
-            options.clientOptions?.onSessionNotification?.(params);
+            clientOptions?.onSessionNotification?.(params);
             handleSessionNotification(params);
           },
         });
@@ -157,7 +165,8 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
       on_initialize_response: (response) => {
         const capabilities = response.agentCapabilities;
         console.log("[acp] Agent capabilities", capabilities);
-        setConnection(options.wsUrl, connectionState, capabilities);
+        const connectionState = getConnection(wsUrl);
+        setConnection(wsUrl, connectionState.state, capabilities);
       },
       on_newSession_response: (response) => {
         console.log("[acp] New session created", response);
@@ -187,7 +196,7 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
   });
 
   const disconnect = useEventCallback((url?: ConnectionUrl) => {
-    const targetUrl = url || options.wsUrl;
+    const targetUrl = url || wsUrl;
 
     if (multiWsManagerRef.current) {
       if (url) {
@@ -233,19 +242,19 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
   // Auto-connect on mount if specified
   // biome-ignore lint/correctness/useExhaustiveDependencies: Don't include connect/disconnect to avoid re-connecting on every render
   useEffect(() => {
-    if (options.autoConnect) {
-      connect().catch(console.error);
+    if (autoConnect) {
+      void connect().catch(console.error);
     }
 
     return () => {
       disconnect();
     };
-  }, [options.autoConnect]);
+  }, [autoConnect, wsUrl]);
 
   return {
     connect,
     disconnect,
-    connectionState,
+    connectionState: getConnection(wsUrl).state,
     activeSessionId,
     notifications: activeSessionId ? notifications[activeSessionId] || [] : [],
     isSessionLoading,

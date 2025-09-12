@@ -43,7 +43,7 @@ interface AcpState {
 
   // Getters
   getActiveConnection: () => Connection | null;
-  getConnection: (url: ConnectionUrl) => Connection | null;
+  getConnection: (url: ConnectionUrl) => Connection;
 }
 
 export const useAcpStore = create<AcpState>((set, get) => ({
@@ -173,6 +173,6 @@ export const useAcpStore = create<AcpState>((set, get) => ({
 
   getConnection: (url: string) => {
     const { connections } = get();
-    return connections[url] || null;
+    return connections[url] || { url, state: { status: "disconnected" }, capabilities: null };
   },
 }));
