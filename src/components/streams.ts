@@ -63,52 +63,19 @@ export function createWebSocketReadableStream(ws: WebSocket): NodeReadableStream
     },
   }) as NodeReadableStream;
 
-  // Simple caching: buffer all chunks in memory
-  const chunks: Uint8Array[] = [];
-  let streamEnded = false;
-  let readerStarted = false;
-
-  // Start reading the stream once
-  const startReading = () => {
-    if (readerStarted) return;
-    readerStarted = true;
-
+  // Add .values() and [Symbol.asyncIterator]
+  const values = async function* () {
     const reader = stream.getReader();
-    (async () => {
-      try {
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) {
-            streamEnded = true;
-            break;
-          }
-          chunks.push(value);
-        }
-      } finally {
-        reader.releaseLock();
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        yield value;
       }
-    })().catch(console.error);
-  };
-
-  const values = async function* (): AsyncGenerator<Uint8Array, undefined, unknown> {
-    startReading();
-    let index = 0;
-
-    while (true) {
-      // Yield any chunks we have
-      while (index < chunks.length) {
-        yield chunks[index]!;
-        index++;
-      }
-
-      // If stream ended, we're done
-      if (streamEnded) break;
-
-      // Wait a bit for more chunks
-      await new Promise((resolve) => setTimeout(resolve, 10));
+    } finally {
+      reader.releaseLock();
     }
-
-    return;
+    return undefined;
   };
 
   // Attach methods
