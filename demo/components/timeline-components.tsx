@@ -1,6 +1,9 @@
 /** biome-ignore-all lint/suspicious/noArrayIndexKey: just a demo */
 
-import type { ToolCallContent, ToolCallUpdate } from "@zed-industries/agent-client-protocol";
+import type {
+  ToolCallContent,
+  ToolCallUpdate,
+} from "@zed-industries/agent-client-protocol/typescript/acp.js";
 import type React from "react";
 import { useEffect, useRef } from "react";
 import type {
@@ -230,6 +233,8 @@ function ToolCallContentBlockComponent({ content }: { content: ToolCallContent }
       return <ContentBlockComponent content={content.content} />;
     case "diff":
       return <DiffContent diff={content} />;
+    case "terminal":
+      return <div className="text-xs text-gray-500">{content.terminalId}</div>;
     default:
       logNever(content);
       return (
@@ -261,6 +266,14 @@ function SessionNotificationRenderer({ sessionData }: { sessionData: SessionUpda
 
     case "plan":
       return <PlanNotificationComponent sessionUpdate={sessionData} />;
+
+    case "available_commands_update":
+      return null;
+
+    case "current_mode_update":
+      return (
+        <div className="text-xs text-gray-500">Switched to mode: {sessionData.currentModeId}</div>
+      );
 
     default:
       logNever(sessionData);

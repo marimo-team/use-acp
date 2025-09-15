@@ -6,6 +6,7 @@ import type {
   InitializeRequest,
   InitializeResponse,
   LoadSessionRequest,
+  LoadSessionResponse,
   NewSessionRequest,
   NewSessionResponse,
   PromptRequest,
@@ -17,7 +18,7 @@ import type {
   SessionNotification,
   WriteTextFileRequest,
   WriteTextFileResponse,
-} from "@zed-industries/agent-client-protocol";
+} from "@zed-industries/agent-client-protocol/typescript/acp.js";
 import { Deferred } from "../utils/deferred.js";
 
 export interface AcpClientOptions {
@@ -130,11 +131,12 @@ export class ListeningAgent implements Agent {
     });
   }
 
-  async loadSession(params: LoadSessionRequest): Promise<void> {
+  async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
     this.callbacks.on_loadSession_start?.(params);
     if (this.agent.loadSession) {
-      return this.agent.loadSession(params).then(() => {
-        this.callbacks.on_loadSession_response?.(undefined, params);
+      return this.agent.loadSession(params).then((response) => {
+        this.callbacks.on_loadSession_response?.(response, params);
+        return response;
       });
     }
     throw new Error("Agent does not support loadSession capability");
