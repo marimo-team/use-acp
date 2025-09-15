@@ -1,4 +1,8 @@
-import type { AgentCapabilities } from "@zed-industries/agent-client-protocol";
+import type {
+  AgentCapabilities,
+  SessionModeId,
+  SessionModeState,
+} from "@zed-industries/agent-client-protocol/typescript/acp.js";
 import { create } from "zustand";
 import type {
   Connection,
@@ -21,6 +25,7 @@ interface AcpState {
   // Session management
   activeSessionId: SessionId | null;
   notifications: Record<SessionId, NotificationEvent[]>;
+  sessionModes: Record<SessionId, SessionModeState | null | undefined>;
 
   // Connection management
   setConnection: (
@@ -37,6 +42,8 @@ interface AcpState {
 
   // Session methods
   setActiveSessionId: (sessionId: SessionId | null) => void;
+  setActiveModeId: (sessionId: SessionId, modeId: SessionModeId | null | undefined) => void;
+  setModeState: (sessionId: SessionId, modeState: SessionModeState | null | undefined) => void;
   addNotification: (notification: NotificationEventData) => void;
   clearNotifications: (sessionId?: SessionId) => void;
   getActiveNotifications: () => NotificationEvent[];
@@ -58,6 +65,7 @@ export const useAcpStore = create<AcpState>((set, get) => ({
   // Session state
   activeSessionId: null,
   notifications: {},
+  sessionModes: {},
 
   // Connection management
   setConnection: (
@@ -127,6 +135,26 @@ export const useAcpStore = create<AcpState>((set, get) => ({
 
   setActiveSessionId: (sessionId: SessionId | null) => {
     set({ activeSessionId: sessionId });
+  },
+
+  setActiveModeId: (sessionId: SessionId, modeId: SessionModeId | null | undefined) => {
+    set((prev) => {
+      const prevMode = prev.sessionModes[sessionId];
+      return {
+        sessionModes: {
+          ...prev.sessionModes,
+          [sessionId]: { ...prevMode, currentModeId: modeId },
+        },
+      };
+    });
+  },
+
+  setModeState: (sessionId: SessionId, modeState: SessionModeState | null | undefined) => {
+    set((prev) => {
+      return {
+        sessionModes: { ...prev.sessionModes, [sessionId]: modeState },
+      };
+    });
   },
 
   addNotification: (notification: NotificationEventData) => {

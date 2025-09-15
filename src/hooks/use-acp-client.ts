@@ -1,11 +1,13 @@
 import {
   type Agent,
   type AgentCapabilities,
+  type AvailableCommand,
   ClientSideConnection,
   type McpServer,
   type RequestPermissionResponse,
+  type SessionModeState,
   type SessionNotification,
-} from "@zed-industries/agent-client-protocol";
+} from "@zed-industries/agent-client-protocol/typescript/acp.js";
 import { useEffect, useRef, useState } from "react";
 import {
   AcpClient,
@@ -61,6 +63,12 @@ export interface UseAcpClientReturn {
   // ACP connection
   agent: Agent | null;
   agentCapabilities: AgentCapabilities | null;
+
+  // Slash commands support
+  availableCommands: AvailableCommand[];
+
+  // Session modes
+  sessionMode: SessionModeState | null | undefined;
 }
 
 export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
@@ -77,6 +85,9 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
     notifications,
     activeSessionId,
     agentCapabilities,
+    sessionModes,
+    setActiveModeId,
+    setModeState,
     setActiveSessionId,
     setConnection,
     setActiveConnection,
@@ -90,6 +101,7 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
   );
   const [agent, setAgent] = useState<Agent | null>(null);
   const [isSessionLoading, setIsSessionLoading] = useState(false);
+  const [availableCommands, setAvailableCommands] = useState<AvailableCommand[]>([]);
 
   // Refs
   const multiWsManagerRef = useRef<MultiWebSocketManager | null>(null);
@@ -120,6 +132,11 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
       type: "session_notification",
       data: notification,
     });
+
+    // Handle available commands updates
+    if (notification.update.sessionUpdate === "available_commands_update") {
+      setAvailableCommands(notification.update.availableCommands);
+    }
   });
 
   const handleRequestPermission = useEventCallback((params: IdentifiedPermissionRequest) => {
@@ -158,7 +175,7 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
         return acpClient;
       },
       writable,
-      readable,
+      readable as ReadableStream<Uint8Array>,
     );
 
     const listeningAgent: Agent = new ListeningAgent(agent, {
@@ -170,11 +187,15 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
       },
       on_newSession_response: (response) => {
         console.log("[acp] New session created", response);
-        setActiveSessionId(response.sessionId as SessionId);
+        const sessionId = response.sessionId as SessionId;
+        setActiveSessionId(sessionId);
+        setModeState(sessionId, response.modes);
       },
-      on_loadSession_response: (_, params) => {
+      on_loadSession_response: (response, params) => {
         console.log("[acp] Session resumed", params);
-        setActiveSessionId(params.sessionId as SessionId);
+        const sessionId = params.sessionId as SessionId;
+        setActiveSessionId(sessionId);
+        setModeState(sessionId, response.modes);
       },
       on_prompt_start: (params) => {
         for (const prompt of params.prompt) {
@@ -189,6 +210,11 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
             },
           });
         }
+      },
+      on_setSessionMode_start: (params) => {
+        console.log("[acp] Session mode set", params);
+        const sessionId = params.sessionId as SessionId;
+        setActiveModeId(sessionId, params.modeId);
       },
     });
 
@@ -212,6 +238,7 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
 
     if (!url) {
       setPendingPermission(null);
+      setAvailableCommands([]);
       // Reset session creation safeguards on full disconnect
       sessionCreationInProgress.current = false;
       lastProcessedSessionId.current = null;
@@ -264,5 +291,7 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
     rejectPermission: rejectPermissionCallback,
     agent: agent,
     agentCapabilities,
+    sessionMode: activeSessionId ? sessionModes[activeSessionId] : null,
+    availableCommands,
   };
 }
