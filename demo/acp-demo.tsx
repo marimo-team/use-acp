@@ -1,3 +1,7 @@
+import type {
+  SessionMode,
+  SessionModeState,
+} from "@zed-industries/agent-client-protocol/typescript/acp.js";
 import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { useAcpClient } from "../src/hooks/use-acp-client.js";
@@ -92,6 +96,8 @@ function AcpDemo() {
     resolvePermission,
     rejectPermission,
     agent: acp,
+    availableCommands,
+    sessionMode,
   } = useAcpClient({
     wsUrl,
     reconnectAttempts: 3,
@@ -163,6 +169,19 @@ function AcpDemo() {
     }, [acp, activeSessionId]),
   );
 
+  const [executeSetMode, isSettingMode, setModeError] = useAsync(
+    useCallback(
+      async (modeId: string) => {
+        if (!acp || !activeSessionId) throw new Error("ACP not connected or no active session");
+        if (!("setSessionMode" in acp) || typeof acp.setSessionMode !== "function") {
+          throw new Error("Agent does not support session modes");
+        }
+        return acp.setSessionMode({ sessionId: activeSessionId, modeId });
+      },
+      [acp, activeSessionId],
+    ),
+  );
+
   const handleConnect = async () => {
     try {
       await connect();
@@ -225,6 +244,17 @@ function AcpDemo() {
   const handleClearAllSessions = () => {
     setSessions([]);
     setActiveSessionId(null);
+  };
+
+  const handleSlashCommand = (commandName: string) => {
+    setPromptText((prev) => prev + "/" + commandName + " ");
+  };
+
+  const handleSetSessionMode = async (modeId: string) => {
+    const response = await executeSetMode(modeId);
+    if (response) {
+      console.log("Session mode changed:", response);
+    }
   };
 
   const getStatusColor = () => {
@@ -339,11 +369,14 @@ function AcpDemo() {
                   )}
                 </div>
 
-                {(newSessionError || promptError || cancelError) && (
+                {(newSessionError || promptError || cancelError || setModeError) && (
                   <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-3">
                     <h4 className="font-medium text-red-800 text-sm mb-1">Error</h4>
                     <p className="text-sm text-red-700">
-                      {newSessionError?.message || promptError?.message || cancelError?.message}
+                      {newSessionError?.message ||
+                        promptError?.message ||
+                        cancelError?.message ||
+                        setModeError?.message}
                     </p>
                   </div>
                 )}
@@ -405,42 +438,101 @@ function AcpDemo() {
                   )}
 
                   {activeSessionId && (
-                    <div className="space-y-2 pt-2 border-t">
-                      <label
-                        htmlFor="promptText"
-                        className="block text-sm font-medium text-gray-700"
-                      >
-                        Send Message to Agent
-                      </label>
-                      <div className="flex gap-2">
-                        <input
-                          id="promptText"
-                          type="text"
-                          value={promptText}
-                          onChange={(e) => setPromptText(e.target.value)}
-                          onKeyPress={(e) => e.key === "Enter" && !isPrompting && handlePrompt()}
-                          placeholder="Type your message..."
-                          className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                          disabled={isPrompting}
-                        />
-                        <button
-                          type="button"
-                          onClick={handlePrompt}
-                          disabled={isPrompting || !promptText.trim()}
-                          className="px-3 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+                    <div className="space-y-3 pt-2 border-t">
+                      {/* Slash Commands */}
+                      {availableCommands.length > 0 && (
+                        <div>
+                          <label
+                            htmlFor="slashCommands"
+                            className="block text-sm font-medium text-gray-700 mb-2"
+                          >
+                            Slash Commands
+                          </label>
+                          <select
+                            id="slashCommands"
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                handleSlashCommand(e.target.value);
+                                e.target.value = "";
+                              }
+                            }}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                          >
+                            <option value="">Insert slash command...</option>
+                            {availableCommands.map((command) => (
+                              <option key={command.name} value={command.name}>
+                                /{command.name} - {command.description}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      {/* Session Modes */}
+                      {sessionMode && sessionMode.availableModes.length > 1 && (
+                        <div>
+                          <label
+                            htmlFor="sessionModes"
+                            className="block text-sm font-medium text-gray-700 mb-2"
+                          >
+                            Session Mode
+                          </label>
+                          <select
+                            id="sessionModes"
+                            value={sessionMode.currentModeId}
+                            onChange={(e) => handleSetSessionMode(e.target.value)}
+                            disabled={isSettingMode}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm disabled:bg-gray-100"
+                          >
+                            {sessionMode.availableModes.map((mode) => (
+                              <option key={mode.id} value={mode.id}>
+                                {mode.name} {mode.description ? `- ${mode.description}` : ""}
+                              </option>
+                            ))}
+                          </select>
+                          {isSettingMode && (
+                            <div className="text-xs text-blue-600 mt-1">Changing mode...</div>
+                          )}
+                        </div>
+                      )}
+
+                      <div>
+                        <label
+                          htmlFor="promptText"
+                          className="block text-sm font-medium text-gray-700 mb-2"
                         >
-                          {isPrompting ? "..." : "Send"}
-                        </button>
-                        {isPrompting && (
+                          Send Message to Agent
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            id="promptText"
+                            type="text"
+                            value={promptText}
+                            onChange={(e) => setPromptText(e.target.value)}
+                            onKeyPress={(e) => e.key === "Enter" && !isPrompting && handlePrompt()}
+                            placeholder="Type your message..."
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                            disabled={isPrompting}
+                          />
                           <button
                             type="button"
-                            onClick={handleCancel}
-                            disabled={isCancelling}
-                            className="px-3 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+                            onClick={handlePrompt}
+                            disabled={isPrompting || !promptText.trim()}
+                            className="px-3 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
                           >
-                            {isCancelling ? "..." : "Cancel"}
+                            {isPrompting ? "..." : "Send"}
                           </button>
-                        )}
+                          {isPrompting && (
+                            <button
+                              type="button"
+                              onClick={handleCancel}
+                              disabled={isCancelling}
+                              className="px-3 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+                            >
+                              {isCancelling ? "..." : "Cancel"}
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
