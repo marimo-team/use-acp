@@ -248,7 +248,7 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
 
   const resolvePermission = useEventCallback((response: RequestPermissionResponse) => {
     if (pendingPermission && acpClientRef.current) {
-      const permissionId = pendingPermission.id;
+      const permissionId = pendingPermission.deferredId;
       if (permissionId) {
         acpClientRef.current.resolvePermission(permissionId, response);
       }
@@ -258,7 +258,7 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
 
   const rejectPermissionCallback = useEventCallback((error: Error) => {
     if (pendingPermission && acpClientRef.current) {
-      const permissionId = pendingPermission.id;
+      const permissionId = pendingPermission.deferredId;
       if (permissionId) {
         acpClientRef.current.rejectPermission(permissionId, error);
       }

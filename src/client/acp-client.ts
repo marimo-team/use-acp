@@ -30,10 +30,10 @@ export interface AcpClientOptions {
 }
 
 export interface IdentifiedPermissionRequest extends RequestPermissionRequest {
-  id: string;
+  deferredId: string;
 }
 
-export type PermissionRequestId = IdentifiedPermissionRequest["id"];
+export type PermissionRequestId = IdentifiedPermissionRequest["deferredId"];
 
 export class AcpClient implements Client {
   public agent: Agent;
@@ -71,7 +71,7 @@ export class AcpClient implements Client {
     const deferred = new Deferred<RequestPermissionResponse>();
 
     this.pendingPermissions.set(permissionId, deferred);
-    this.options.onRequestPermission({ ...params, id: permissionId });
+    this.options.onRequestPermission({ ...params, deferredId: permissionId });
 
     return deferred.promise;
   }

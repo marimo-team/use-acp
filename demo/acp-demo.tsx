@@ -25,14 +25,14 @@ const AGENT_CONFIGS: [AgentConfig, AgentConfig, AgentConfig] = [
     name: "Claude Code ACP",
     wsUrl: "ws://localhost:3003/message",
     command:
-      'npx -y supergateway --stdio "npx @zed-industries/claude-code-acp" --outputTransport ws --port 3003',
+      'npx -y stdio-to-ws --stdio "npx @zed-industries/claude-code-acp" --outputTransport ws --port 3003',
   },
   {
     id: "gemini",
     name: "Gemini CLI ACP",
     wsUrl: "ws://localhost:3004/message",
     command:
-      'npx -y supergateway --stdio "npx @google/gemini-cli --experimental-acp" --outputTransport ws --port 3004',
+      'npx -y stdio-to-ws --stdio "npx @google/gemini-cli --experimental-acp" --outputTransport ws --port 3004',
   },
   {
     id: "custom",
