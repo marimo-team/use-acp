@@ -17,7 +17,6 @@ import type {
   RequestPermissionResponse,
   SessionNotification,
   SetSessionModeRequest,
-  SetSessionModeResponse,
   WriteTextFileRequest,
   WriteTextFileResponse,
 } from "@zed-industries/agent-client-protocol/typescript/acp.js";
