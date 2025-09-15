@@ -1,7 +1,3 @@
-import type {
-  SessionMode,
-  SessionModeState,
-} from "@zed-industries/agent-client-protocol/typescript/acp.js";
 import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { useAcpClient } from "../src/hooks/use-acp-client.js";
@@ -247,7 +243,7 @@ function AcpDemo() {
   };
 
   const handleSlashCommand = (commandName: string) => {
-    setPromptText((prev) => prev + "/" + commandName + " ");
+    setPromptText((prev) => `${prev}/${commandName} `);
   };
 
   const handleSetSessionMode = async (modeId: string) => {
