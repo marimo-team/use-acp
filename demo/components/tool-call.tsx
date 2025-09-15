@@ -1,4 +1,4 @@
-import type { ToolCallUpdate } from "@zed-industries/agent-client-protocol/typescript/acp.js";
+import type { ToolCallUpdate } from "@zed-industries/agent-client-protocol";
 import type { ToolCallDiff, ToolCallStart } from "../../src/client/types.js";
 import { ContentBlockComponent } from "./content-block.js";
 import { Badge, Card, CodeBlock, IconLabel, SectionHeader } from "./ui-primitives.js";

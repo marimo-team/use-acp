@@ -1,7 +1,4 @@
-import type {
-  AgentCapabilities,
-  SessionNotification,
-} from "@zed-industries/agent-client-protocol/typescript/acp.js";
+import type { AgentCapabilities, SessionNotification } from "@zed-industries/agent-client-protocol";
 
 export type AgentId = string & { __brand: "AgentId" };
 export type SessionId = string & { __brand: "SessionId" };

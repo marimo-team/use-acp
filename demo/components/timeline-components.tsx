@@ -1,9 +1,6 @@
 /** biome-ignore-all lint/suspicious/noArrayIndexKey: just a demo */
 
-import type {
-  ToolCallContent,
-  ToolCallUpdate,
-} from "@zed-industries/agent-client-protocol/typescript/acp.js";
+import type { ToolCallContent, ToolCallUpdate } from "@zed-industries/agent-client-protocol";
 import type React from "react";
 import { useEffect, useRef } from "react";
 import type {

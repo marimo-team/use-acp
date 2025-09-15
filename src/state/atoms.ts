@@ -2,7 +2,7 @@ import type {
   AgentCapabilities,
   SessionModeId,
   SessionModeState,
-} from "@zed-industries/agent-client-protocol/typescript/acp.js";
+} from "@zed-industries/agent-client-protocol";
 import { create } from "zustand";
 import type {
   Connection,

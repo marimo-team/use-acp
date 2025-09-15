@@ -19,7 +19,7 @@ import type {
   SetSessionModeRequest,
   WriteTextFileRequest,
   WriteTextFileResponse,
-} from "@zed-industries/agent-client-protocol/typescript/acp.js";
+} from "@zed-industries/agent-client-protocol";
 import { Deferred } from "../utils/deferred.js";
 
 export interface AcpClientOptions {

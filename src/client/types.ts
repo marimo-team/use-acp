@@ -1,7 +1,4 @@
-import type {
-  SessionNotification,
-  ToolCallContent,
-} from "@zed-industries/agent-client-protocol/typescript/acp.js";
+import type { SessionNotification, ToolCallContent } from "@zed-industries/agent-client-protocol";
 
 export type SessionUpdate = SessionNotification["update"];
 

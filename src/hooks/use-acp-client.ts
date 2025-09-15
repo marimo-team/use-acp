@@ -7,7 +7,7 @@ import {
   type RequestPermissionResponse,
   type SessionModeState,
   type SessionNotification,
-} from "@zed-industries/agent-client-protocol/typescript/acp.js";
+} from "@zed-industries/agent-client-protocol";
 import { useEffect, useRef, useState } from "react";
 import {
   AcpClient,

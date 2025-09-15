@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@zed-industries/agent-client-protocol':
-        specifier: ^0.3.0
-        version: 0.3.0
+        specifier: ^0.3.1
+        version: 0.3.1
       zustand:
         specifier: ^5.0.2
         version: 5.0.8(@types/react@19.1.12)(react@19.1.1)
@@ -693,8 +693,8 @@ packages:
   '@vitest/utils@3.2.4':
     resolution: {integrity: sha512-fB2V0JFrQSMsCo9HiSq3Ezpdv4iYaXRG1Sx8edX3MwxfyNn83mKiGzOcH+Fkxt4MHxr3y42fQi1oeAInqgX2QA==}
 
-  '@zed-industries/agent-client-protocol@0.3.0':
-    resolution: {integrity: sha512-p3zphM4liUAZAU9uDhTYXgYHieuYFcf7zB1lM4IH2/paNTpQmhV2c+a/t7VAinelSDihBcmf+Dn+a5jjs8AOCA==}
+  '@zed-industries/agent-client-protocol@0.3.1':
+    resolution: {integrity: sha512-G3gGwNZ18vuuo6rDCo8eoGs/V/P2stIMV7srlaTNXf3u8qAoUNm91p2qhMurR/bCebq8J8yWCKuBZXdC/E162w==}
 
   acorn@8.15.0:
     resolution: {integrity: sha512-NZyJarBfL7nWwIq+FDL6Zp/yHEhePMNnnJ0y3qfieCrmNvYct8uvtiV41UvlSe6apAfk0fY1FbWx+NwfmpvtTg==}
@@ -2652,7 +2652,7 @@ snapshots:
       loupe: 3.2.0
       tinyrainbow: 2.0.0
 
-  '@zed-industries/agent-client-protocol@0.3.0':
+  '@zed-industries/agent-client-protocol@0.3.1':
     dependencies:
       zod: 3.25.76
 
