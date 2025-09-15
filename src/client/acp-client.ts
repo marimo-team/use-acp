@@ -16,6 +16,8 @@ import type {
   RequestPermissionRequest,
   RequestPermissionResponse,
   SessionNotification,
+  SetSessionModeRequest,
+  SetSessionModeResponse,
   WriteTextFileRequest,
   WriteTextFileResponse,
 } from "@zed-industries/agent-client-protocol/typescript/acp.js";
@@ -110,11 +112,32 @@ type ListeningAgentCallbacks = {
     : never;
 } & {};
 
-export class ListeningAgent implements Agent {
+export class ListeningAgent implements Required<Agent> {
   constructor(
     private readonly agent: Agent,
     private readonly callbacks: Partial<ListeningAgentCallbacks>,
   ) {}
+
+  extMethod(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (this.agent.extMethod) {
+      return this.agent.extMethod(method, params);
+    }
+    return Promise.resolve({});
+  }
+  extNotification(method: string, params: Record<string, unknown>): Promise<void> {
+    if (this.agent.extNotification) {
+      return this.agent.extNotification(method, params);
+    }
+    return Promise.resolve();
+  }
+
+  async setSessionMode(params: SetSessionModeRequest) {
+    this.callbacks.on_setSessionMode_start?.(params);
+    return this.agent.setSessionMode?.(params).then((response) => {
+      this.callbacks.on_setSessionMode_response?.(response, params);
+      return response;
+    });
+  }
 
   async initialize(params: InitializeRequest): Promise<InitializeResponse> {
     this.callbacks.on_initialize_start?.(params);
