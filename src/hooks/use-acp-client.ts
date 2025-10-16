@@ -51,6 +51,7 @@ export interface UseAcpClientReturn {
 
   // State management
   activeSessionId: SessionId | null;
+  setActiveSessionId: (sessionId: SessionId | null) => void;
   notifications: NotificationEvent[];
   clearNotifications: () => void;
   isSessionLoading: boolean;
@@ -269,6 +270,9 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
   // Auto-connect on mount if specified
   // biome-ignore lint/correctness/useExhaustiveDependencies: Don't include connect/disconnect to avoid re-connecting on every render
   useEffect(() => {
+    // Reset the active session id as the connection is being established
+    setActiveSessionId(null);
+
     if (autoConnect) {
       void connect().catch(console.error);
     }
@@ -287,6 +291,7 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
     isSessionLoading,
     clearNotifications,
     pendingPermission,
+    setActiveSessionId,
     resolvePermission,
     rejectPermission: rejectPermissionCallback,
     agent: agent,
