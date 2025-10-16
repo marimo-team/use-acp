@@ -51,6 +51,7 @@ export interface UseAcpClientReturn {
 
   // State management
   activeSessionId: SessionId | null;
+  setActiveSessionId: (sessionId: SessionId | null) => void;
   notifications: NotificationEvent[];
   clearNotifications: () => void;
   isSessionLoading: boolean;
@@ -290,6 +291,7 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
     isSessionLoading,
     clearNotifications,
     pendingPermission,
+    setActiveSessionId,
     resolvePermission,
     rejectPermission: rejectPermissionCallback,
     agent: agent,
