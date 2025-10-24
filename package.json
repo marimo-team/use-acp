@@ -74,7 +74,7 @@
     ]
   },
   "dependencies": {
-    "@zed-industries/agent-client-protocol": "0.3.1",
+    "@agentclientprotocol/sdk": "^0.4.9",
     "zustand": "^5.0.2"
   }
 }

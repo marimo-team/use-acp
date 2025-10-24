@@ -8,9 +8,9 @@ importers:
 
   .:
     dependencies:
-      '@zed-industries/agent-client-protocol':
-        specifier: 0.3.1
-        version: 0.3.1
+      '@agentclientprotocol/sdk':
+        specifier: ^0.4.9
+        version: 0.4.9
       zustand:
         specifier: ^5.0.2
         version: 5.0.8(@types/react@19.1.12)(react@19.1.1)
@@ -59,6 +59,9 @@ importers:
         version: 3.2.4(@types/debug@4.1.12)(@types/node@24.3.1)(happy-dom@15.11.7)(jsdom@26.1.0)(yaml@2.8.0)
 
 packages:
+
+  '@agentclientprotocol/sdk@0.4.9':
+    resolution: {integrity: sha512-ExwH828LaTGoTTjxuw49l+fwOLA+Yx0+qkWn1TcHMOsY5mVI9CUfkj7ZDhv2klgZ7mJeT+lxX/Dn/KINv1AkNQ==}
 
   '@ampproject/remapping@2.3.0':
     resolution: {integrity: sha512-30iZtAPgz+LTIYoeivqYo853f02jBYSd5uGnGpkFV0M3xOt9aN73erkgYAmZU43x4VfqcnLxW9Kpg3R5LC4YYw==}
@@ -692,10 +695,6 @@ packages:
 
   '@vitest/utils@3.2.4':
     resolution: {integrity: sha512-fB2V0JFrQSMsCo9HiSq3Ezpdv4iYaXRG1Sx8edX3MwxfyNn83mKiGzOcH+Fkxt4MHxr3y42fQi1oeAInqgX2QA==}
-
-  '@zed-industries/agent-client-protocol@0.3.1':
-    resolution: {integrity: sha512-G3gGwNZ18vuuo6rDCo8eoGs/V/P2stIMV7srlaTNXf3u8qAoUNm91p2qhMurR/bCebq8J8yWCKuBZXdC/E162w==}
-    deprecated: This package has been renamed to @agentclientprotocol/sdk. Please migrate to continue receiving updates.
 
   acorn@8.15.0:
     resolution: {integrity: sha512-NZyJarBfL7nWwIq+FDL6Zp/yHEhePMNnnJ0y3qfieCrmNvYct8uvtiV41UvlSe6apAfk0fY1FbWx+NwfmpvtTg==}
@@ -2094,6 +2093,10 @@ packages:
 
 snapshots:
 
+  '@agentclientprotocol/sdk@0.4.9':
+    dependencies:
+      zod: 3.25.76
+
   '@ampproject/remapping@2.3.0':
     dependencies:
       '@jridgewell/gen-mapping': 0.3.8
@@ -2652,10 +2655,6 @@ snapshots:
       '@vitest/pretty-format': 3.2.4
       loupe: 3.2.0
       tinyrainbow: 2.0.0
-
-  '@zed-industries/agent-client-protocol@0.3.1':
-    dependencies:
-      zod: 3.25.76
 
   acorn@8.15.0: {}
 
