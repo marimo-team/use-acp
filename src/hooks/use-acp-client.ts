@@ -4,10 +4,11 @@ import {
   type AvailableCommand,
   ClientSideConnection,
   type McpServer,
+  ndJsonStream,
   type RequestPermissionResponse,
   type SessionModeState,
   type SessionNotification,
-} from "@zed-industries/agent-client-protocol";
+} from "@agentclientprotocol/sdk";
 import { useEffect, useRef, useState } from "react";
 import {
   AcpClient,
@@ -175,8 +176,7 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
         acpClientRef.current = acpClient;
         return acpClient;
       },
-      writable,
-      readable as ReadableStream<Uint8Array>,
+      ndJsonStream(writable, readable as ReadableStream<Uint8Array>),
     );
 
     const listeningAgent: Agent = new ListeningAgent(agent, {

@@ -16,10 +16,12 @@ import type {
   RequestPermissionRequest,
   RequestPermissionResponse,
   SessionNotification,
+  SetSessionModelRequest,
+  SetSessionModelResponse,
   SetSessionModeRequest,
   WriteTextFileRequest,
   WriteTextFileResponse,
-} from "@zed-industries/agent-client-protocol";
+} from "@agentclientprotocol/sdk";
 import { Deferred } from "../utils/deferred.js";
 
 export interface AcpClientOptions {
@@ -136,6 +138,16 @@ export class ListeningAgent implements Required<Agent> {
       this.callbacks.on_setSessionMode_response?.(response, params);
       return response;
     });
+  }
+
+  async setSessionModel(
+    params: SetSessionModelRequest,
+    // biome-ignore lint/suspicious/noConfusingVoidType: Matches Agent interface signature
+  ): Promise<SetSessionModelResponse | void> {
+    this.callbacks.on_setSessionModel_start?.(params);
+    const result = await this.agent.setSessionModel?.(params);
+    this.callbacks.on_setSessionModel_response?.(result, params);
+    return result;
   }
 
   async initialize(params: InitializeRequest): Promise<InitializeResponse> {

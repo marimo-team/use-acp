@@ -1,4 +1,4 @@
-import type { ToolCallUpdate } from "@zed-industries/agent-client-protocol";
+import type { ToolCallUpdate } from "@agentclientprotocol/sdk";
 import type { SessionUpdate } from "../client/types.js";
 import { invariant } from "../utils/never.js";
 import type { NotificationEvent } from "./types.js";

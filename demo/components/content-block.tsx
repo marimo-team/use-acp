@@ -1,4 +1,4 @@
-import type { ContentBlock } from "@zed-industries/agent-client-protocol";
+import type { ContentBlock } from "@agentclientprotocol/sdk";
 import type React from "react";
 import { Streamdown } from "streamdown";
 import { logNever } from "../../src/utils/never.js";
