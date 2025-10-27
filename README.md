@@ -99,10 +99,10 @@ pnpm dev       # run demo, http://localhost:5173
 
 ```bash
 # Gemini ACP
-npx -y stdio-to-ws --stdio "npx @google/gemini-cli --experimental-acp" --outputTransport ws
+npx -y stdio-to-ws "npx @google/gemini-cli --experimental-acp"
 
 # Claude Code ACP
-npx -y stdio-to-ws --stdio "npx @zed-industries/claude-code-acp" --outputTransport ws
+npx -y stdio-to-ws "npx @zed-industries/claude-code-acp"
 ```
 
 ## License
