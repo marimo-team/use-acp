@@ -5,3 +5,5 @@ scripts/**.js
 dist
 .DS_Store
 !.vscode
+.claude/settings.local.json
+.envrc
