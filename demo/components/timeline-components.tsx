@@ -265,7 +265,12 @@ function SessionNotificationRenderer({ sessionData }: { sessionData: SessionUpda
       return <PlanNotificationComponent sessionUpdate={sessionData} />;
 
     case "available_commands_update":
-      return null;
+      return (
+        <div className="text-xs text-gray-500">
+          Available commands:{" "}
+          {sessionData.availableCommands.map((command) => command.name).join(", ")}
+        </div>
+      );
 
     case "current_mode_update":
       return (
