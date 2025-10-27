@@ -19,7 +19,7 @@ interface Session {
   lastActiveAt: Date;
 }
 
-const AGENT_CONFIGS: [AgentConfig, AgentConfig, AgentConfig] = [
+const AGENT_CONFIGS: [AgentConfig, AgentConfig, AgentConfig, AgentConfig] = [
   {
     id: "claude",
     name: "Claude Code ACP",
@@ -31,6 +31,12 @@ const AGENT_CONFIGS: [AgentConfig, AgentConfig, AgentConfig] = [
     name: "Gemini CLI ACP",
     wsUrl: "ws://localhost:3004/message",
     command: 'npx -y stdio-to-ws "npx @google/gemini-cli --experimental-acp" --port 3004',
+  },
+  {
+    id: "codex",
+    name: "Codex ACP",
+    wsUrl: "ws://localhost:3005/message",
+    command: 'npx -y stdio-to-ws "npx @zed-industries/codex-acp" --port 3005',
   },
   {
     id: "custom",
@@ -98,7 +104,7 @@ function AcpDemo() {
     reconnectDelay: 2000,
     initialSessionId: activeSessionId,
     sessionParams: {
-      cwd: ".",
+      cwd: "/tmp",
       mcpServers: [],
     },
   });
@@ -115,7 +121,7 @@ function AcpDemo() {
       if (!acp) throw new Error("ACP not connected");
       return acp
         .newSession({
-          cwd: ".",
+          cwd: "/tmp",
           mcpServers: [],
         })
         .then((response) => {
@@ -367,10 +373,7 @@ function AcpDemo() {
                   <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-3">
                     <h4 className="font-medium text-red-800 text-sm mb-1">Error</h4>
                     <p className="text-sm text-red-700">
-                      {newSessionError?.message ||
-                        promptError?.message ||
-                        cancelError?.message ||
-                        setModeError?.message}
+                      {prettyError(newSessionError || promptError || cancelError || setModeError)}
                     </p>
                   </div>
                 )}
@@ -606,4 +609,9 @@ export function renderAcpDemo() {
     const root = createRoot(container);
     root.render(<AcpDemo />);
   }
+}
+
+function prettyError(error: unknown) {
+  const errorString = error instanceof Error ? error.message : String(error);
+  return errorString;
 }
