@@ -103,6 +103,9 @@ npx -y stdio-to-ws "npx @google/gemini-cli --experimental-acp"
 
 # Claude Code ACP
 npx -y stdio-to-ws "npx @zed-industries/claude-code-acp"
+
+# Codex ACP
+npx -y stdio-to-ws "npx @zed-industries/codex-acp"
 ```
 
 ## License

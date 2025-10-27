@@ -23,10 +23,12 @@ import type {
   WriteTextFileResponse,
 } from "@agentclientprotocol/sdk";
 import { Deferred } from "../utils/deferred.js";
+import { JsonRpcError, JsonRpcErrorCodes } from "../utils/jsonrpc-error.js";
 
 export interface AcpClientOptions {
   onRequestPermission: (params: IdentifiedPermissionRequest) => void;
   onSessionNotification: (params: SessionNotification) => void;
+  onRpcError?: (error: JsonRpcError) => void;
   readTextFile?: (params: ReadTextFileRequest) => Promise<ReadTextFileResponse>;
   writeTextFile?: (params: WriteTextFileRequest) => Promise<WriteTextFileResponse>;
 }
@@ -111,13 +113,71 @@ type ListeningAgentCallbacks = {
   ) => unknown
     ? (request: Parameters<RequiredAgent[K]>[0]) => void
     : never;
-} & {};
+} & {
+  on_rpc_error?: (error: JsonRpcError) => void;
+};
+
+/**
+ * Try to extract JSON-RPC error from any error object
+ */
+function toJsonRpcError(error: unknown): JsonRpcError | null {
+  if (error instanceof JsonRpcError) {
+    return error;
+  }
+
+  if (error instanceof Error) {
+    return new JsonRpcError({
+      code: JsonRpcErrorCodes.INTERNAL_ERROR,
+      message: error.message,
+      data: error.stack,
+    });
+  }
+
+  // Check if it's an error object with code, message, and optionally data
+  if (
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    "message" in error &&
+    typeof (error as { code: unknown }).code === "number" &&
+    typeof (error as { message: unknown }).message === "string"
+  ) {
+    const errorObj = error as Record<string, unknown>;
+    return new JsonRpcError(
+      {
+        code: errorObj.code as number,
+        message: errorObj.message as string,
+        data: errorObj.data,
+      },
+      undefined,
+    );
+  }
+
+  return null;
+}
 
 export class ListeningAgent implements Required<Agent> {
   constructor(
     private readonly agent: Agent,
     private readonly callbacks: Partial<ListeningAgentCallbacks>,
   ) {}
+
+  /**
+   * Wraps an async agent call with JSON-RPC error handling
+   */
+  private handleCatchRpcError(methodName: string) {
+    return (error: unknown) => {
+      // Try to extract JSON-RPC error
+      const jsonRpcError = toJsonRpcError(error);
+      if (jsonRpcError) {
+        console.error(`[acp] JSON-RPC error in ${methodName}:`, jsonRpcError);
+        this.callbacks.on_rpc_error?.(jsonRpcError);
+        throw jsonRpcError;
+      }
+      // Re-throw if not a JSON-RPC error
+      throw error;
+    };
+  }
 
   extMethod(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
     if (this.agent.extMethod) {
@@ -134,10 +194,11 @@ export class ListeningAgent implements Required<Agent> {
 
   async setSessionMode(params: SetSessionModeRequest) {
     this.callbacks.on_setSessionMode_start?.(params);
-    return this.agent.setSessionMode?.(params).then((response) => {
-      this.callbacks.on_setSessionMode_response?.(response, params);
-      return response;
-    });
+    const response = await this.agent
+      .setSessionMode?.(params)
+      .catch(this.handleCatchRpcError("setSessionMode"));
+    this.callbacks.on_setSessionMode_response?.(response, params);
+    return response;
   }
 
   async setSessionModel(
@@ -145,54 +206,59 @@ export class ListeningAgent implements Required<Agent> {
     // biome-ignore lint/suspicious/noConfusingVoidType: Matches Agent interface signature
   ): Promise<SetSessionModelResponse | void> {
     this.callbacks.on_setSessionModel_start?.(params);
-    const result = await this.agent.setSessionModel?.(params);
+    const result = await this.agent
+      .setSessionModel?.(params)
+      .catch(this.handleCatchRpcError("setSessionModel"));
     this.callbacks.on_setSessionModel_response?.(result, params);
     return result;
   }
 
   async initialize(params: InitializeRequest): Promise<InitializeResponse> {
     this.callbacks.on_initialize_start?.(params);
-    return this.agent.initialize(params).then((response) => {
-      this.callbacks.on_initialize_response?.(response, params);
-      return response;
-    });
+    const response = await this.agent
+      .initialize(params)
+      .catch(this.handleCatchRpcError("initialize"));
+    this.callbacks.on_initialize_response?.(response, params);
+    return response;
   }
+
   async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
     this.callbacks.on_newSession_start?.(params);
-    return this.agent.newSession(params).then((response) => {
-      this.callbacks.on_newSession_response?.(response, params);
-      return response;
-    });
+    const response = await this.agent
+      .newSession(params)
+      .catch(this.handleCatchRpcError("newSession"));
+    this.callbacks.on_newSession_response?.(response, params);
+    return response;
   }
 
   async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
     this.callbacks.on_loadSession_start?.(params);
     if (this.agent.loadSession) {
-      return this.agent.loadSession(params).then((response) => {
-        this.callbacks.on_loadSession_response?.(response, params);
-        return response;
-      });
+      const response = await this.agent
+        .loadSession(params)
+        .catch(this.handleCatchRpcError("loadSession"));
+      this.callbacks.on_loadSession_response?.(response, params);
+      return response;
     }
     throw new Error("Agent does not support loadSession capability");
   }
 
   async authenticate(params: AuthenticateRequest): Promise<void> {
     this.callbacks.on_authenticate_start?.(params);
-    return this.agent.authenticate(params).then(() => {
-      this.callbacks.on_authenticate_response?.(undefined, params);
-    });
+    await this.agent.authenticate(params).catch(this.handleCatchRpcError("authenticate"));
+    this.callbacks.on_authenticate_response?.(undefined, params);
   }
+
   async prompt(params: PromptRequest): Promise<PromptResponse> {
     this.callbacks.on_prompt_start?.(params);
-    return this.agent.prompt(params).then((response) => {
-      this.callbacks.on_prompt_response?.(response, params);
-      return response;
-    });
+    const response = await this.agent.prompt(params).catch(this.handleCatchRpcError("prompt"));
+    this.callbacks.on_prompt_response?.(response, params);
+    return response;
   }
+
   async cancel(params: CancelNotification): Promise<void> {
     this.callbacks.on_cancel_start?.(params);
-    return this.agent.cancel(params).then(() => {
-      this.callbacks.on_cancel_response?.(undefined, params);
-    });
+    await this.agent.cancel(params).catch(this.handleCatchRpcError("cancel"));
+    this.callbacks.on_cancel_response?.(undefined, params);
   }
 }

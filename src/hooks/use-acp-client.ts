@@ -172,6 +172,10 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
             clientOptions?.onSessionNotification?.(params);
             handleSessionNotification(params);
           },
+          onRpcError: (error) => {
+            clientOptions?.onRpcError?.(error);
+            handleError(error, wsUrl);
+          },
         });
         acpClientRef.current = acpClient;
         return acpClient;
@@ -217,6 +221,7 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
         const sessionId = params.sessionId as SessionId;
         setActiveModeId(sessionId, params.modeId);
       },
+      on_rpc_error: (error) => handleError(error, wsUrl),
     });
 
     setAgent(listeningAgent);
