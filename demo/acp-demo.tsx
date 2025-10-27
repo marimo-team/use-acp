@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { useAcpClient } from "../src/hooks/use-acp-client.js";
+import { JsonRpcError } from "../src/utils/jsonrpc-error.js";
 import { NotificationTimeline } from "./components/timeline-components.js";
 import { ToolCall } from "./components/tool-call.js";
 
@@ -611,7 +612,9 @@ export function renderAcpDemo() {
   }
 }
 
-function prettyError(error: unknown) {
-  const errorString = error instanceof Error ? error.message : String(error);
-  return errorString;
+function prettyError(error: unknown): string {
+  if (error instanceof JsonRpcError) {
+    return typeof error.data === "string" ? error.data : String(error.data);
+  }
+  return error instanceof Error ? error.message : String(error);
 }

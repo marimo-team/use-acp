@@ -23,7 +23,7 @@ import type {
   WriteTextFileResponse,
 } from "@agentclientprotocol/sdk";
 import { Deferred } from "../utils/deferred.js";
-import { JsonRpcError } from "../utils/jsonrpc-error.js";
+import { JsonRpcError, JsonRpcErrorCodes } from "../utils/jsonrpc-error.js";
 
 export interface AcpClientOptions {
   onRequestPermission: (params: IdentifiedPermissionRequest) => void;
@@ -127,7 +127,7 @@ function toJsonRpcError(error: unknown): JsonRpcError | null {
 
   if (error instanceof Error) {
     return new JsonRpcError({
-      code: -32603,
+      code: JsonRpcErrorCodes.INTERNAL_ERROR,
       message: error.message,
       data: error.stack,
     });

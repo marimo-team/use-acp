@@ -25,7 +25,7 @@ export class JsonRpcError extends Error {
   public readonly id?: number | string | null;
 
   constructor(error: JsonRpcErrorData, id?: number | string | null) {
-    super(typeof error.data === "string" ? error.data : error.message);
+    super(error.message);
     this.name = "JsonRpcError";
     this.code = error.code;
     this.data = error.data;

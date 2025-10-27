@@ -13,6 +13,7 @@ import type {
 } from "../../src/client/types.js";
 import type { NotificationEvent } from "../../src/state/types.js";
 import { groupNotifications, mergeToolCalls } from "../../src/state/utils.js";
+import { JsonRpcError } from "../../src/utils/jsonrpc-error.js";
 import { logNever } from "../../src/utils/never.js";
 import { ContentBlockComponent } from "./content-block.js";
 import { DiffContent } from "./tool-call.js";
@@ -61,6 +62,11 @@ function ErrorNotification({
     <div className="space-y-2">
       <IconLabel icon="❌" label="Error" />
       <div className="text-sm text-gray-700">{notification.data.message}</div>
+      {notification.data instanceof JsonRpcError && (
+        <div className="text-xs text-gray-500">
+          <CodeBlock>{JSON.stringify(notification.data.toJSON(), null, 2)}</CodeBlock>
+        </div>
+      )}
       {notification.data.stack && (
         <Collapsible summary="Stack trace">
           <CodeBlock>{notification.data.stack}</CodeBlock>
