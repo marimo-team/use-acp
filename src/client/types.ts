@@ -1,4 +1,4 @@
-import type { SessionNotification, ToolCallContent } from "@zed-industries/agent-client-protocol";
+import type { SessionNotification, ToolCallContent } from "@agentclientprotocol/sdk";
 
 export type SessionUpdate = SessionNotification["update"];
 

@@ -1,8 +1,4 @@
-import type {
-  AgentCapabilities,
-  SessionModeId,
-  SessionModeState,
-} from "@zed-industries/agent-client-protocol";
+import type { AgentCapabilities, SessionModeId, SessionModeState } from "@agentclientprotocol/sdk";
 import { create } from "zustand";
 import type {
   Connection,
