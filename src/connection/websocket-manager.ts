@@ -181,7 +181,8 @@ export class WebSocketManager {
   }
 
   private attemptReconnect() {
-    if (this.reconnectCount < (this.options.reconnectAttempts || 3)) {
+    const maxAttempts = this.options.reconnectAttempts ?? 3;
+    if (this.reconnectCount < maxAttempts) {
       this.reconnectCount++;
       this.reconnectTimer = setTimeout(async () => {
         try {
