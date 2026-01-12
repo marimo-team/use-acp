@@ -54,7 +54,7 @@ export interface UseAcpClientReturn {
   activeSessionId: SessionId | null;
   setActiveSessionId: (sessionId: SessionId | null) => void;
   notifications: NotificationEvent[];
-  clearNotifications: () => void;
+  clearNotifications: (sessionId?: SessionId) => void;
   isSessionLoading: boolean;
 
   // Permission handling

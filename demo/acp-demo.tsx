@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { useAcpClient } from "../src/hooks/use-acp-client.js";
+import type { SessionId } from "../src/state/types.js";
 import { JsonRpcError } from "../src/utils/jsonrpc-error.js";
 import { NotificationTimeline } from "./components/timeline-components.js";
 import { ToolCall } from "./components/tool-call.js";
@@ -587,7 +588,7 @@ function AcpDemo() {
               )}
             </div>
             <button
-              onClick={clearNotifications}
+              onClick={() => activeSessionId && clearNotifications(activeSessionId as SessionId)}
               type="button"
               className="text-sm text-gray-500 hover:text-gray-700 px-3 py-1 border border-gray-300 rounded-md hover:bg-gray-100"
             >
