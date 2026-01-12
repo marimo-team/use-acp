@@ -1,12 +1,13 @@
 name: Release
 
 permissions:
+  id-token: write  # Required for OIDC
   contents: write
 
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 jobs:
   release:
@@ -25,8 +26,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: 'https://registry.npmjs.org'
+          registry-url: "https://registry.npmjs.org"
           cache: pnpm
+
+      - name: Upgrade npm for OIDC support
+        run: npm install -g npm@latest
 
       - name: 📥 Install dependencies
         run: pnpm install --frozen-lockfile
@@ -65,11 +69,19 @@ jobs:
           echo "✅ Build artifacts validation passed"
 
       - name: 📦 Publish to NPM
-        run: pnpm publish --no-git-checks
+        run: npm publish
         env:
-          NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
+          NODE_AUTH_TOKEN: "" # Clear placeholder set by setup-node to enable OIDC
 
       - name: 📝 Update Changelog
         run: npx changelogithub
         env:
           GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+
+      - name: 📣 Notify release result
+        if: always()
+        uses: marimo-team/internal-gh-actions/release-notification@main
+        with:
+          status: ${{ job.status }}
+          slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL_RELEASES }}
+          artifact-url: "https://npmjs.com/package/@marimo-team/use-acp"
