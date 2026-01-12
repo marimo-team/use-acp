@@ -155,7 +155,15 @@ export const useAcpStore = create<AcpState>((set, get) => ({
 
   addNotification: (notification: NotificationEventData) => {
     const current = get().notifications;
-    const sessionId = get().activeSessionId;
+
+    // We prefer using the sessionId from the notification itself, because it may not be the same as the activeSessionId.
+    let sessionId: SessionId | null;
+    if (notification.type === "session_notification" && notification.data?.sessionId) {
+      sessionId = notification.data.sessionId as SessionId;
+    } else {
+      sessionId = get().activeSessionId;
+    }
+
     if (!sessionId) {
       return;
     }
