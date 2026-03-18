@@ -1,0 +1,4 @@
+minimumReleaseAge: 10080
+verifyDepsBeforeRun: install
+minimumReleaseAgeExclude:
+  - "@marimo-team/*"
