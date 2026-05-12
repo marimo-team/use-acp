@@ -28,6 +28,7 @@
     "ai"
   ],
   "license": "Apache-2.0",
+  "packageManager": "pnpm@10.28.2",
   "peerDependencies": {
     "react": "^19",
     "react-dom": "^19"
