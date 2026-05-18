@@ -1,4 +1,9 @@
-minimumReleaseAge: 10080
+minimumReleaseAge: 20160
 verifyDepsBeforeRun: install
 minimumReleaseAgeExclude:
   - "@marimo-team/*"
+packages:
+  - .
+blockExoticSubdeps: true
+trustPolicy: no-downgrade
+onlyBuiltDependencies: []
