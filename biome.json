@@ -39,5 +39,10 @@
       "semicolons": "always",
       "indentStyle": "space"
     }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
   }
 }

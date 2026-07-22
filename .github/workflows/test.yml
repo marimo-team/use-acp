@@ -35,11 +35,20 @@ jobs:
       - name: 📥 Install dependencies
         run: pnpm install --ignore-scripts --frozen-lockfile
 
+      - name: 🧹 Lint
+        run: pnpm run lint:ci
+
       - name: 🔍 Type Check
         run: pnpm run typecheck
 
       - name: 🧪 Test
         run: pnpm run test
+
+      - name: 📊 Report Coverage
+        if: always()
+        uses: davelosert/vitest-coverage-report-action@3c50566c523e04813df28de8f7c48dd97d663f1c # v2
+        with:
+          pr-number: auto
 
   security:
     runs-on: ubuntu-latest
