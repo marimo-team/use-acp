@@ -15,6 +15,7 @@
     "dev": "vite",
     "typecheck": "tsc --noEmit",
     "lint": "biome check --write",
+    "lint:ci": "biome check",
     "test": "vitest",
     "demo": "vite build",
     "build": "tsc",

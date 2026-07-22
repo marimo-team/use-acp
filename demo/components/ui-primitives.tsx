@@ -175,6 +175,7 @@ export function MetadataList({ items, className = "" }: MetadataListProps) {
   return (
     <div className={`space-y-1 ${className}`}>
       {items.map((item, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: index only disambiguates duplicate metadata labels in demo data
         <div key={`${item.label}-${index}`} className="flex items-center justify-between text-xs">
           <span className="text-gray-500 opacity-70">{item.label}:</span>
           <span className="text-gray-700 font-mono">{item.value}</span>

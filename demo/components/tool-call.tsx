@@ -90,6 +90,7 @@ export function ToolCall({ toolCall }: ToolCallProps) {
           <IconLabel icon="📍" label="Locations" size="sm" className="mb-2 text-gray-700" />
           <div className="flex flex-wrap gap-1">
             {toolCall.locations?.map((location, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: index only disambiguates duplicate location paths in demo data
               <Badge key={`${location.path}-${index}`} variant="default" size="md">
                 <code className="text-xs">
                   {location.line ? `${location.path}:${location.line}` : location.path}
@@ -107,10 +108,12 @@ export function ToolCall({ toolCall }: ToolCallProps) {
           <div className="space-y-4">
             {toolCall.content?.map((item, index) => {
               if (item.type === "diff") {
+                // biome-ignore lint/suspicious/noArrayIndexKey: index only disambiguates repeated content types in demo data
                 return <DiffContent key={`${item.type}-${index}`} diff={item} />;
               }
               if (item.type === "content") {
                 return (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: index only disambiguates repeated content types in demo data
                   <ContentBlockComponent key={`${item.type}-${index}`} content={item.content} />
                 );
               }
