@@ -132,6 +132,9 @@ function AcpDemo() {
   // Read inside the connection effect, which must only re-run when the connection changes
   const selectedAgentRef = useRef({ id: selectedAgentId, name: agentName });
   selectedAgentRef.current = { id: selectedAgentId, name: agentName };
+  // Session that was open when the user switched away from each agent, reopened on return
+  const lastSessionByAgentRef = useRef<Record<string, string>>({});
+  const pendingRestoreRef = useRef<string | null>(null);
 
   // Every new connection is a new agent process: forget its predecessor's sessions,
   // ask the agent what it supports (loadSession decides whether resume can work) and,
@@ -139,9 +142,11 @@ function AcpDemo() {
   useEffect(() => {
     setLiveSessionIds(new Set());
     setLiveCapabilities(null);
+    pendingRestoreRef.current = null;
     if (!acp) return;
     let cancelled = false;
     const { id: agentId, name } = selectedAgentRef.current;
+    pendingRestoreRef.current = lastSessionByAgentRef.current[agentId] ?? null;
 
     const syncConnection = async () => {
       const { agentCapabilities } = await acp.initialize({
@@ -195,7 +200,11 @@ function AcpDemo() {
     async (sessionId: string) => {
       if (!acp) throw new Error("ACP not connected");
       if (liveSessionIds.has(sessionId)) return;
-      if (!liveCapabilities?.loadSession || !acp.loadSession) {
+      // Until initialize answers, "can't reload" and "don't know yet" look the same
+      if (!liveCapabilities) {
+        throw new Error("Still connecting to the agent. Try again in a moment.");
+      }
+      if (!liveCapabilities.loadSession || !acp.loadSession) {
         throw new Error(
           "This session ended when the connection to the agent closed, and the agent cannot reload sessions. Start a new session.",
         );
@@ -247,6 +256,15 @@ function AcpDemo() {
       [ensureSessionLive, setActiveSessionId],
     ),
   );
+
+  // Back on an agent: reopen the session that was active when the user left it,
+  // once initialize has confirmed the agent can reload sessions
+  useEffect(() => {
+    const sessionId = pendingRestoreRef.current;
+    if (!sessionId || !liveCapabilities?.loadSession) return;
+    pendingRestoreRef.current = null;
+    void executeResume(sessionId);
+  }, [liveCapabilities, executeResume]);
 
   const [executePrompt, isPrompting, promptError] = useAsync(
     useCallback(
@@ -336,6 +354,9 @@ function AcpDemo() {
   };
 
   const handleAgentChange = (agentId: string) => {
+    if (activeSessionId) {
+      lastSessionByAgentRef.current[selectedAgentId] = activeSessionId;
+    }
     setSelectedAgentId(agentId);
     // Switching agents closes the current connection, so no session stays active
     setActiveSessionId(null);
@@ -522,7 +543,7 @@ function AcpDemo() {
                           <button
                             key={session.id}
                             type="button"
-                            disabled={isResuming}
+                            disabled={isResuming || !liveCapabilities}
                             className={`w-full text-left text-xs p-2 border rounded cursor-pointer hover:bg-gray-50 disabled:cursor-wait ${
                               session.id === activeSessionId
                                 ? "border-blue-500 bg-blue-50"
@@ -537,7 +558,11 @@ function AcpDemo() {
                               ) : (
                                 !liveSessionIds.has(session.id) && (
                                   <span className="text-gray-400">
-                                    {liveCapabilities?.loadSession ? "reload" : "ended"}
+                                    {!liveCapabilities
+                                      ? "connecting…"
+                                      : liveCapabilities.loadSession
+                                        ? "reload"
+                                        : "ended"}
                                   </span>
                                 )
                               )}
