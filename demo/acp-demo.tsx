@@ -1,5 +1,9 @@
-import { type AgentCapabilities, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
-import { useCallback, useEffect, useState } from "react";
+import {
+  type AgentCapabilities,
+  PROTOCOL_VERSION,
+  type SessionInfo,
+} from "@agentclientprotocol/sdk";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { useAcpClient } from "../src/hooks/use-acp-client.js";
 import type { SessionId } from "../src/state/types.js";
@@ -18,6 +22,8 @@ interface Session {
   id: string;
   agentId: string;
   agentName: string;
+  // Set for sessions restored from the agent's session/list
+  title?: string;
   createdAt: Date;
   lastActiveAt: Date;
 }
@@ -122,22 +128,59 @@ function AcpDemo() {
     }
   }, [notifications]);
 
-  // Every new connection is a new agent process: forget its predecessor's sessions
-  // and ask the agent what it supports (loadSession decides whether resume can work).
+  const agentName = selectedAgent?.name || "";
+  // Read inside the connection effect, which must only re-run when the connection changes
+  const selectedAgentRef = useRef({ id: selectedAgentId, name: agentName });
+  selectedAgentRef.current = { id: selectedAgentId, name: agentName };
+
+  // Every new connection is a new agent process: forget its predecessor's sessions,
+  // ask the agent what it supports (loadSession decides whether resume can work) and,
+  // when it can list sessions, pull its stored ones so they survive a page reload.
   useEffect(() => {
     setLiveSessionIds(new Set());
     setLiveCapabilities(null);
     if (!acp) return;
     let cancelled = false;
-    acp
-      .initialize({
+    const { id: agentId, name } = selectedAgentRef.current;
+
+    const syncConnection = async () => {
+      const { agentCapabilities } = await acp.initialize({
         protocolVersion: PROTOCOL_VERSION,
         clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
-      })
-      .then((response) => {
-        if (!cancelled) setLiveCapabilities(response.agentCapabilities ?? null);
-      })
-      .catch((error) => console.error("Initialize failed:", error));
+      });
+      if (cancelled) return;
+      setLiveCapabilities(agentCapabilities ?? null);
+      if (!agentCapabilities?.sessionCapabilities?.list || !acp.listSessions) return;
+
+      const stored: SessionInfo[] = [];
+      let cursor: string | null | undefined;
+      do {
+        const page = await acp.listSessions({ cwd: "/tmp", cursor });
+        stored.push(...page.sessions);
+        cursor = page.nextCursor;
+      } while (cursor && !cancelled);
+      if (cancelled) return;
+
+      setSessions((prev) => {
+        const known = new Set(prev.map((s) => s.id));
+        const restored = stored
+          .filter((s) => !known.has(s.sessionId))
+          .map((s): Session => {
+            const updatedAt = s.updatedAt ? new Date(s.updatedAt) : new Date();
+            return {
+              id: s.sessionId,
+              agentId,
+              agentName: name,
+              title: s.title ?? undefined,
+              createdAt: updatedAt,
+              lastActiveAt: updatedAt,
+            };
+          });
+        return restored.length > 0 ? [...prev, ...restored] : prev;
+      });
+    };
+
+    syncConnection().catch((error) => console.error("Syncing agent sessions failed:", error));
     return () => {
       cancelled = true;
     };
@@ -165,33 +208,30 @@ function AcpDemo() {
     [acp, liveSessionIds, liveCapabilities, clearNotifications, markSessionLive],
   );
 
-  const agentName = selectedAgent?.name || "";
   const [executeNewSession, isCreatingSession, newSessionError] = useAsync(
     useCallback(async () => {
       if (!acp) throw new Error("ACP not connected");
-      return acp
-        .newSession({
+      try {
+        const response = await acp.newSession({
           cwd: "/tmp",
           mcpServers: [],
-        })
-        .then((response) => {
-          // Add session to our tracking
-          const newSession: Session = {
-            id: response.sessionId,
-            agentId: selectedAgentId,
-            agentName: agentName,
-            createdAt: new Date(),
-            lastActiveAt: new Date(),
-          };
-          setSessions((prev) => [...prev, newSession]);
-          markSessionLive(response.sessionId);
-          setActiveSessionId(response.sessionId as SessionId);
-          return response;
-        })
-        .catch((error) => {
-          console.error("New session error:", error);
-          throw error;
         });
+        // Add session to our tracking
+        const newSession: Session = {
+          id: response.sessionId,
+          agentId: selectedAgentId,
+          agentName: agentName,
+          createdAt: new Date(),
+          lastActiveAt: new Date(),
+        };
+        setSessions((prev) => [...prev, newSession]);
+        markSessionLive(response.sessionId);
+        setActiveSessionId(response.sessionId as SessionId);
+        return response;
+      } catch (error) {
+        console.error("New session error:", error);
+        throw error;
+      }
     }, [acp, selectedAgentId, agentName, markSessionLive, setActiveSessionId]),
   );
 
@@ -302,7 +342,9 @@ function AcpDemo() {
   };
 
   // Only the selected agent's sessions can be resumed over the current connection
-  const agentSessions = sessions.filter((s) => s.agentId === selectedAgentId);
+  const agentSessions = sessions
+    .filter((s) => s.agentId === selectedAgentId)
+    .sort((a, b) => b.lastActiveAt.getTime() - a.lastActiveAt.getTime());
 
   const handleClearAllSessions = () => {
     setSessions([]);
@@ -481,7 +523,7 @@ function AcpDemo() {
                             key={session.id}
                             type="button"
                             disabled={isResuming}
-                            className={`text-xs p-2 border rounded cursor-pointer hover:bg-gray-50 disabled:cursor-wait ${
+                            className={`w-full text-left text-xs p-2 border rounded cursor-pointer hover:bg-gray-50 disabled:cursor-wait ${
                               session.id === activeSessionId
                                 ? "border-blue-500 bg-blue-50"
                                 : "border-gray-200"
@@ -500,6 +542,9 @@ function AcpDemo() {
                                 )
                               )}
                             </div>
+                            {session.title && (
+                              <div className="text-gray-800 truncate">{session.title}</div>
+                            )}
                             <div className="text-gray-600">{session.id.slice(0, 16)}...</div>
                             <div className="text-gray-500">
                               {session.lastActiveAt.toLocaleTimeString()}

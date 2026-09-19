@@ -200,7 +200,7 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
         console.log("[acp] Session resumed", params);
         const sessionId = params.sessionId as SessionId;
         setActiveSessionId(sessionId);
-        setModeState(sessionId, response.modes);
+        setModeState(sessionId, response?.modes);
       },
       on_prompt_start: (params) => {
         for (const prompt of params.prompt) {
