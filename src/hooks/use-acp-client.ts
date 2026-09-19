@@ -155,8 +155,11 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
       });
     }
 
+    const manager = multiWsManagerRef.current;
     setActiveConnection(wsUrl);
-    const { readable, writable } = await multiWsManagerRef.current.connect(wsUrl);
+    const { readable, writable } = await manager.connect(wsUrl);
+    // Torn down (e.g. wsUrl changed) while connecting: don't adopt a stale connection
+    if (multiWsManagerRef.current !== manager) return;
 
     // Initialize the connection
     const agent = new ClientSideConnection(
@@ -227,29 +230,29 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
     setAgent(listeningAgent);
   });
 
-  const disconnect = useEventCallback((url?: ConnectionUrl) => {
-    const targetUrl = url || wsUrl;
-
+  // Close the connection to targetUrl and reset all per-connection state
+  const teardown = useEventCallback((targetUrl: ConnectionUrl) => {
     if (multiWsManagerRef.current) {
-      if (url) {
-        multiWsManagerRef.current.disconnect(url);
-      } else {
-        // Disconnect the current URL specifically instead of all connections
-        multiWsManagerRef.current.disconnect(targetUrl);
-        multiWsManagerRef.current = null;
-        acpClientRef.current = null;
-        setAgent(null);
-      }
+      multiWsManagerRef.current.disconnect(targetUrl);
+      multiWsManagerRef.current = null;
+      acpClientRef.current = null;
+      setAgent(null);
     }
 
-    if (!url) {
-      setPendingPermission(null);
-      setAvailableCommands([]);
-      // Reset session creation safeguards on full disconnect
-      sessionCreationInProgress.current = false;
-      lastProcessedSessionId.current = null;
-      setIsSessionLoading(false);
+    setPendingPermission(null);
+    setAvailableCommands([]);
+    // Reset session creation safeguards on full disconnect
+    sessionCreationInProgress.current = false;
+    lastProcessedSessionId.current = null;
+    setIsSessionLoading(false);
+  });
+
+  const disconnect = useEventCallback((url?: ConnectionUrl) => {
+    if (url) {
+      multiWsManagerRef.current?.disconnect(url);
+      return;
     }
+    teardown(wsUrl);
   });
 
   const resolvePermission = useEventCallback((response: RequestPermissionResponse) => {
@@ -282,8 +285,12 @@ export function useAcpClient(options: UseAcpClientOptions): UseAcpClientReturn {
       void connect().catch(console.error);
     }
 
+    // Tear down the URL this effect connected to. Calling disconnect() here would
+    // read the latest wsUrl, which is already the next one when wsUrl changes,
+    // and leave the previous WebSocket (and the agent behind it) open.
+    const connectedUrl = wsUrl;
     return () => {
-      disconnect();
+      teardown(connectedUrl);
     };
   }, [autoConnect, wsUrl]);
 
