@@ -55,6 +55,29 @@ const AGENT_CONFIGS: [AgentConfig, AgentConfig, AgentConfig, AgentConfig] = [
   },
 ];
 
+// Agents without session/delete keep listing sessions the user deleted; remember them across reloads
+const DISMISSED_SESSIONS_KEY = "acp-demo:dismissed-sessions";
+
+function loadDismissedSessionIds(): Set<string> {
+  try {
+    const stored = JSON.parse(localStorage.getItem(DISMISSED_SESSIONS_KEY) ?? "[]");
+    return new Set(Array.isArray(stored) ? stored : []);
+  } catch {
+    return new Set();
+  }
+}
+
+const dismissedSessionIds = loadDismissedSessionIds();
+
+function dismissSessionId(sessionId: string) {
+  dismissedSessionIds.add(sessionId);
+  try {
+    localStorage.setItem(DISMISSED_SESSIONS_KEY, JSON.stringify([...dismissedSessionIds]));
+  } catch {
+    // Storage unavailable: the id is still filtered until the page reloads
+  }
+}
+
 function useAsync<T extends unknown[], R>(
   asyncFn: (...args: T) => Promise<R>,
 ): [(...args: T) => Promise<R | undefined>, boolean, Error | null] {
@@ -169,7 +192,7 @@ function AcpDemo() {
       setSessions((prev) => {
         const known = new Set(prev.map((s) => s.id));
         const restored = stored
-          .filter((s) => !known.has(s.sessionId))
+          .filter((s) => !known.has(s.sessionId) && !dismissedSessionIds.has(s.sessionId))
           .map((s): Session => {
             const updatedAt = s.updatedAt ? new Date(s.updatedAt) : new Date();
             return {
@@ -285,6 +308,50 @@ function AcpDemo() {
     void executeResume(sessionId);
   }, [liveCapabilities, executeResume]);
 
+  // Delete sessions one by one on the agent (when it supports session/delete) and forget them locally.
+  // Stops at the first failure so the list still shows what was not deleted.
+  const [executeDelete, isDeleting, deleteError] = useAsync(
+    useCallback(
+      async (sessionIds: string[]) => {
+        if (!acp) throw new Error("ACP not connected");
+        const canClose = !!liveCapabilities?.sessionCapabilities?.close;
+        const canDelete = !!liveCapabilities?.sessionCapabilities?.delete;
+        for (const sessionId of sessionIds) {
+          // Stop any running work before the session disappears
+          if (canClose && liveSessionIds.has(sessionId) && acp.closeSession) {
+            await acp.closeSession({ sessionId });
+          }
+          if (canDelete && acp.deleteSession) {
+            await acp.deleteSession({ sessionId });
+          } else {
+            dismissSessionId(sessionId);
+          }
+
+          setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+          setLiveSessionIds((prev) => {
+            const next = new Set(prev);
+            next.delete(sessionId);
+            return next;
+          });
+          clearNotifications(sessionId as SessionId);
+          if (activeSessionId === sessionId) setActiveSessionId(null);
+          for (const [agentId, lastId] of Object.entries(lastSessionByAgentRef.current)) {
+            if (lastId === sessionId) delete lastSessionByAgentRef.current[agentId];
+          }
+          if (pendingRestoreRef.current === sessionId) pendingRestoreRef.current = null;
+        }
+      },
+      [
+        acp,
+        liveCapabilities,
+        liveSessionIds,
+        activeSessionId,
+        clearNotifications,
+        setActiveSessionId,
+      ],
+    ),
+  );
+
   const [executePrompt, isPrompting, promptError] = useAsync(
     useCallback(
       async (text: string) => {
@@ -386,9 +453,16 @@ function AcpDemo() {
     .filter((s) => s.agentId === selectedAgentId)
     .sort((a, b) => b.lastActiveAt.getTime() - a.lastActiveAt.getTime());
 
-  const handleClearAllSessions = () => {
-    setSessions([]);
-    setActiveSessionId(null);
+  const handleClearAllSessions = async () => {
+    const count = agentSessions.length;
+    if (!window.confirm(`Delete all ${count} session${count === 1 ? "" : "s"} for ${agentName}?`)) {
+      return;
+    }
+    await executeDelete(agentSessions.map((s) => s.id));
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    await executeDelete([sessionId]);
   };
 
   const handleSlashCommand = (commandName: string) => {
@@ -514,13 +588,19 @@ function AcpDemo() {
                   )}
                 </div>
 
-                {(newSessionError || resumeError || promptError || cancelError || setModeError) && (
+                {(newSessionError ||
+                  resumeError ||
+                  deleteError ||
+                  promptError ||
+                  cancelError ||
+                  setModeError) && (
                   <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-3">
                     <h4 className="font-medium text-red-800 text-sm mb-1">Error</h4>
                     <p className="text-sm text-red-700">
                       {prettyError(
                         newSessionError ||
                           resumeError ||
+                          deleteError ||
                           promptError ||
                           cancelError ||
                           setModeError,
@@ -551,49 +631,79 @@ function AcpDemo() {
                         <button
                           type="button"
                           onClick={handleClearAllSessions}
+                          disabled={isDeleting}
                           id="clearAllSessions"
-                          className="text-xs text-red-600 hover:text-red-800"
+                          className="text-xs text-red-600 hover:text-red-800 disabled:text-gray-400 disabled:cursor-wait"
                         >
-                          Clear All
+                          {isDeleting ? "Deleting..." : "Clear All"}
                         </button>
                       </div>
                       <div className="space-y-1 max-h-24 overflow-y-auto">
                         {agentSessions.map((session) => (
-                          <button
+                          <div
                             key={session.id}
-                            type="button"
-                            disabled={isResuming || !liveCapabilities}
-                            className={`w-full text-left text-xs p-2 border rounded cursor-pointer hover:bg-gray-50 disabled:cursor-wait ${
+                            className={`flex items-stretch border rounded ${
                               session.id === activeSessionId
                                 ? "border-blue-500 bg-blue-50"
                                 : "border-gray-200"
                             }`}
-                            onClick={() => handleResumeSession(session.id)}
                           >
-                            <div className="flex items-center justify-between">
-                              <span className="font-medium">{session.agentName}</span>
-                              {session.id === activeSessionId ? (
-                                <span className="text-blue-600">●</span>
-                              ) : (
-                                !liveSessionIds.has(session.id) && (
-                                  <span className="text-gray-400">
-                                    {!liveCapabilities
-                                      ? "connecting…"
-                                      : liveCapabilities.loadSession
-                                        ? "reload"
-                                        : "ended"}
-                                  </span>
-                                )
+                            <button
+                              type="button"
+                              disabled={isResuming || isDeleting || !liveCapabilities}
+                              className="flex-1 min-w-0 text-left text-xs p-2 cursor-pointer hover:bg-gray-50 disabled:cursor-wait"
+                              onClick={() => handleResumeSession(session.id)}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-medium">{session.agentName}</span>
+                                {session.id === activeSessionId ? (
+                                  <span className="text-blue-600">●</span>
+                                ) : (
+                                  !liveSessionIds.has(session.id) && (
+                                    <span className="text-gray-400">
+                                      {!liveCapabilities
+                                        ? "connecting…"
+                                        : liveCapabilities.loadSession
+                                          ? "reload"
+                                          : "ended"}
+                                    </span>
+                                  )
+                                )}
+                              </div>
+                              {session.title && (
+                                <div className="text-gray-800 truncate">{session.title}</div>
                               )}
-                            </div>
-                            {session.title && (
-                              <div className="text-gray-800 truncate">{session.title}</div>
-                            )}
-                            <div className="text-gray-600">{session.id.slice(0, 16)}...</div>
-                            <div className="text-gray-500">
-                              {session.lastActiveAt.toLocaleTimeString()}
-                            </div>
-                          </button>
+                              <div className="text-gray-600">{session.id.slice(0, 16)}...</div>
+                              <div className="text-gray-500">
+                                {session.lastActiveAt.toLocaleTimeString()}
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="Delete session"
+                              title="Delete session"
+                              disabled={isDeleting || isResuming}
+                              onClick={() => handleDeleteSession(session.id)}
+                              className="px-2 text-gray-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-wait"
+                            >
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                className="w-4 h-4"
+                                aria-hidden="true"
+                              >
+                                <path d="M3 6h18" />
+                                <path d="M8 6V4h8v2" />
+                                <path d="M19 6l-1 14H6L5 6" />
+                                <path d="M10 11v6M14 11v6" />
+                              </svg>
+                            </button>
+                          </div>
                         ))}
                       </div>
                     </div>
