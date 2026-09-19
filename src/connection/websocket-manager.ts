@@ -113,15 +113,11 @@ export class WebSocketManager {
     this.updateConnectionState({ status: "connecting", url: this.options.url });
 
     try {
-      this.ws = new WebSocket(this.options.url);
+      const ws = new WebSocket(this.options.url);
+      this.ws = ws;
 
       return new Promise((resolve, reject) => {
-        if (!this.ws) {
-          reject(new Error("WebSocket not initialized"));
-          return;
-        }
-
-        this.ws.onopen = () => {
+        ws.onopen = () => {
           this.reconnectCount = 0;
           this.updateConnectionState({ status: "connected", url: this.options.url });
 
@@ -136,7 +132,13 @@ export class WebSocketManager {
           }
         };
 
-        this.ws.onerror = (_event) => {
+        ws.onerror = (_event) => {
+          // disconnect() already let go of this socket; its late events must not
+          // report errors or trigger a reconnect
+          if (this.ws !== ws) {
+            reject(new Error("WebSocket disconnected"));
+            return;
+          }
           const error = new Error("WebSocket connection error");
           this.options.onError(error);
           this.updateConnectionState({
@@ -147,7 +149,11 @@ export class WebSocketManager {
           reject(error);
         };
 
-        this.ws.onclose = () => {
+        ws.onclose = () => {
+          if (this.ws !== ws) {
+            reject(new Error("WebSocket disconnected"));
+            return;
+          }
           this.updateConnectionState({ status: "disconnected", url: this.options.url });
           this.attemptReconnect();
         };
