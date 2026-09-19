@@ -244,18 +244,37 @@ function AcpDemo() {
     }, [acp, selectedAgentId, agentName, markSessionLive, setActiveSessionId]),
   );
 
+  // session/load replays the whole conversation and can take several seconds
+  const [reopeningSessionId, setReopeningSessionId] = useState<string | null>(null);
+  const acpRef = useRef(acp);
+  acpRef.current = acp;
+
   const [executeResume, isResuming, resumeError] = useAsync(
     useCallback(
       async (sessionId: string) => {
-        await ensureSessionLive(sessionId);
+        const connection = acp;
+        if (!liveSessionIds.has(sessionId)) setReopeningSessionId(sessionId);
+        try {
+          await ensureSessionLive(sessionId);
+        } catch (error) {
+          // Switching agents mid-load closes the connection and rejects the request;
+          // that is the user moving on, not a failure worth reporting
+          if (acpRef.current !== connection) return;
+          throw error;
+        } finally {
+          setReopeningSessionId((current) => (current === sessionId ? null : current));
+        }
+        if (acpRef.current !== connection) return;
         setSessions((prev) =>
           prev.map((s) => (s.id === sessionId ? { ...s, lastActiveAt: new Date() } : s)),
         );
         setActiveSessionId(sessionId as SessionId);
       },
-      [ensureSessionLive, setActiveSessionId],
+      [acp, liveSessionIds, ensureSessionLive, setActiveSessionId],
     ),
   );
+  const reopeningSession = sessions.find((s) => s.id === reopeningSessionId);
+  const reopeningLabel = reopeningSession?.title ?? reopeningSessionId?.slice(0, 16);
 
   // Back on an agent: reopen the session that was active when the user left it,
   // once initialize has confirmed the agent can reload sessions
@@ -727,8 +746,14 @@ function AcpDemo() {
               <h2 className="text-lg font-semibold text-gray-800">
                 {selectedAgent.name} Conversation ({notifications.length})
               </h2>
-              {activeSessionId && (
-                <p className="text-sm text-gray-600">Session: {activeSessionId.slice(0, 16)}...</p>
+              {reopeningSessionId ? (
+                <p className="text-sm text-blue-600">Reopening "{reopeningLabel}"...</p>
+              ) : (
+                activeSessionId && (
+                  <p className="text-sm text-gray-600">
+                    Session: {activeSessionId.slice(0, 16)}...
+                  </p>
+                )
               )}
             </div>
             <button
@@ -742,7 +767,13 @@ function AcpDemo() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
-          <NotificationTimeline notifications={notifications} maxItems={200} />
+          {reopeningSessionId ? (
+            <div className="text-center text-sm text-gray-500 py-8">
+              Reopening "{reopeningLabel}"... the agent is replaying the conversation.
+            </div>
+          ) : (
+            <NotificationTimeline notifications={notifications} maxItems={200} />
+          )}
         </div>
       </div>
     </div>
@@ -760,7 +791,8 @@ export function renderAcpDemo() {
 function prettyError(error: unknown): string {
   if (error instanceof JsonRpcError) {
     const data: unknown = error.data;
-    if (typeof data === "string") return data;
+    // A wrapped plain Error carries its stack trace as data; the message reads better
+    if (typeof data === "string") return data.includes("\n    at ") ? error.message : data;
     // Agents usually put the useful part in data.details (e.g. "Session not found")
     if (data && typeof data === "object" && "details" in data && typeof data.details === "string") {
       return `${error.message}: ${data.details}`;
