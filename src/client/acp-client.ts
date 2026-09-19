@@ -3,6 +3,10 @@ import type {
   AuthenticateRequest,
   CancelNotification,
   Client,
+  CloseSessionRequest,
+  CloseSessionResponse,
+  DeleteSessionRequest,
+  DeleteSessionResponse,
   InitializeRequest,
   InitializeResponse,
   ListSessionsRequest,
@@ -249,6 +253,32 @@ export class ListeningAgent implements Agent {
       return response;
     }
     throw new Error("Agent does not support listSessions capability");
+  }
+
+  // biome-ignore lint/suspicious/noConfusingVoidType: Matches Agent interface signature
+  async deleteSession(params: DeleteSessionRequest): Promise<DeleteSessionResponse | void> {
+    this.callbacks.on_deleteSession_start?.(params);
+    if (this.agent.deleteSession) {
+      const response = await Promise.resolve(this.agent.deleteSession(params)).catch(
+        this.handleCatchRpcError("deleteSession"),
+      );
+      this.callbacks.on_deleteSession_response?.(response, params);
+      return response;
+    }
+    throw new Error("Agent does not support deleteSession capability");
+  }
+
+  // biome-ignore lint/suspicious/noConfusingVoidType: Matches Agent interface signature
+  async closeSession(params: CloseSessionRequest): Promise<CloseSessionResponse | void> {
+    this.callbacks.on_closeSession_start?.(params);
+    if (this.agent.closeSession) {
+      const response = await Promise.resolve(this.agent.closeSession(params)).catch(
+        this.handleCatchRpcError("closeSession"),
+      );
+      this.callbacks.on_closeSession_response?.(response, params);
+      return response;
+    }
+    throw new Error("Agent does not support closeSession capability");
   }
 
   async authenticate(params: AuthenticateRequest): Promise<void> {
