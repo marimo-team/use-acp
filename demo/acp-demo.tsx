@@ -1,3 +1,4 @@
+import { type AgentCapabilities, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { useAcpClient } from "../src/hooks/use-acp-client.js";
@@ -81,8 +82,11 @@ function AcpDemo() {
   const [selectedAgentId, setSelectedAgentId] = useState<string>(AGENT_CONFIGS[0].id);
   const [customWsUrl, setCustomWsUrl] = useState("ws://localhost:8000/message");
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [promptText, setPromptText] = useState("");
+  // Sessions only live inside the agent process behind the current connection
+  // (stdio-to-ws spawns a fresh process per WebSocket), so track which ones it knows.
+  const [liveSessionIds, setLiveSessionIds] = useState<Set<string>>(() => new Set());
+  const [liveCapabilities, setLiveCapabilities] = useState<AgentCapabilities | null>(null);
 
   // Get current agent config
   const selectedAgent = AGENT_CONFIGS.find((a) => a.id === selectedAgentId) || AGENT_CONFIGS[0];
@@ -100,11 +104,12 @@ function AcpDemo() {
     agent: acp,
     availableCommands,
     sessionMode,
+    activeSessionId,
+    setActiveSessionId,
   } = useAcpClient({
     wsUrl,
     reconnectAttempts: 3,
     reconnectDelay: 2000,
-    initialSessionId: activeSessionId,
     sessionParams: {
       cwd: "/tmp",
       mcpServers: [],
@@ -116,6 +121,49 @@ function AcpDemo() {
       console.log("Notifications:", notifications);
     }
   }, [notifications]);
+
+  // Every new connection is a new agent process: forget its predecessor's sessions
+  // and ask the agent what it supports (loadSession decides whether resume can work).
+  useEffect(() => {
+    setLiveSessionIds(new Set());
+    setLiveCapabilities(null);
+    if (!acp) return;
+    let cancelled = false;
+    acp
+      .initialize({
+        protocolVersion: PROTOCOL_VERSION,
+        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
+      })
+      .then((response) => {
+        if (!cancelled) setLiveCapabilities(response.agentCapabilities ?? null);
+      })
+      .catch((error) => console.error("Initialize failed:", error));
+    return () => {
+      cancelled = true;
+    };
+  }, [acp]);
+
+  const markSessionLive = useCallback((sessionId: string) => {
+    setLiveSessionIds((prev) => new Set(prev).add(sessionId));
+  }, []);
+
+  // Make sure the current agent process knows this session, reloading it if needed.
+  const ensureSessionLive = useCallback(
+    async (sessionId: string) => {
+      if (!acp) throw new Error("ACP not connected");
+      if (liveSessionIds.has(sessionId)) return;
+      if (!liveCapabilities?.loadSession || !acp.loadSession) {
+        throw new Error(
+          "This session ended when the connection to the agent closed, and the agent cannot reload sessions. Start a new session.",
+        );
+      }
+      // The agent replays the whole conversation while loading, so drop the stale copy first
+      clearNotifications(sessionId as SessionId);
+      await acp.loadSession({ sessionId, cwd: "/tmp", mcpServers: [] });
+      markSessionLive(sessionId);
+    },
+    [acp, liveSessionIds, liveCapabilities, clearNotifications, markSessionLive],
+  );
 
   const agentName = selectedAgent?.name || "";
   const [executeNewSession, isCreatingSession, newSessionError] = useAsync(
@@ -136,20 +184,36 @@ function AcpDemo() {
             lastActiveAt: new Date(),
           };
           setSessions((prev) => [...prev, newSession]);
-          setActiveSessionId(response.sessionId);
+          markSessionLive(response.sessionId);
+          setActiveSessionId(response.sessionId as SessionId);
           return response;
         })
         .catch((error) => {
           console.error("New session error:", error);
           throw error;
         });
-    }, [acp, selectedAgentId, agentName]),
+    }, [acp, selectedAgentId, agentName, markSessionLive, setActiveSessionId]),
+  );
+
+  const [executeResume, isResuming, resumeError] = useAsync(
+    useCallback(
+      async (sessionId: string) => {
+        await ensureSessionLive(sessionId);
+        setSessions((prev) =>
+          prev.map((s) => (s.id === sessionId ? { ...s, lastActiveAt: new Date() } : s)),
+        );
+        setActiveSessionId(sessionId as SessionId);
+      },
+      [ensureSessionLive, setActiveSessionId],
+    ),
   );
 
   const [executePrompt, isPrompting, promptError] = useAsync(
     useCallback(
       async (text: string) => {
         if (!acp || !activeSessionId) throw new Error("ACP not connected or no active session");
+        // A reconnect (e.g. Disconnect → Connect) keeps the session selected but not alive
+        await ensureSessionLive(activeSessionId);
         return acp.prompt({
           sessionId: activeSessionId,
           prompt: [
@@ -160,7 +224,7 @@ function AcpDemo() {
           ],
         });
       },
-      [acp, activeSessionId],
+      [acp, activeSessionId, ensureSessionLive],
     ),
   );
 
@@ -227,21 +291,18 @@ function AcpDemo() {
     }
   };
 
-  const handleResumeSession = (sessionId: string) => {
-    setSessions((prev) =>
-      prev.map((s) => (s.id === sessionId ? { ...s, lastActiveAt: new Date() } : s)),
-    );
-    setActiveSessionId(sessionId);
+  const handleResumeSession = async (sessionId: string) => {
+    await executeResume(sessionId);
   };
 
   const handleAgentChange = (agentId: string) => {
     setSelectedAgentId(agentId);
-    // Clear active session when changing agents unless it belongs to the new agent
-    const currentSession = sessions.find((s) => s.id === activeSessionId);
-    if (currentSession?.agentId !== agentId) {
-      setActiveSessionId(null);
-    }
+    // Switching agents closes the current connection, so no session stays active
+    setActiveSessionId(null);
   };
+
+  // Only the selected agent's sessions can be resumed over the current connection
+  const agentSessions = sessions.filter((s) => s.agentId === selectedAgentId);
 
   const handleClearAllSessions = () => {
     setSessions([]);
@@ -371,11 +432,17 @@ function AcpDemo() {
                   )}
                 </div>
 
-                {(newSessionError || promptError || cancelError || setModeError) && (
+                {(newSessionError || resumeError || promptError || cancelError || setModeError) && (
                   <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-3">
                     <h4 className="font-medium text-red-800 text-sm mb-1">Error</h4>
                     <p className="text-sm text-red-700">
-                      {prettyError(newSessionError || promptError || cancelError || setModeError)}
+                      {prettyError(
+                        newSessionError ||
+                          resumeError ||
+                          promptError ||
+                          cancelError ||
+                          setModeError,
+                      )}
                     </p>
                   </div>
                 )}
@@ -390,7 +457,7 @@ function AcpDemo() {
                     {isCreatingSession ? "Creating..." : `New Session (${agentName})`}
                   </button>
 
-                  {sessions.length > 0 && (
+                  {agentSessions.length > 0 && (
                     <div>
                       <div className="flex items-center justify-between mb-2">
                         <label
@@ -409,11 +476,12 @@ function AcpDemo() {
                         </button>
                       </div>
                       <div className="space-y-1 max-h-24 overflow-y-auto">
-                        {sessions.map((session) => (
+                        {agentSessions.map((session) => (
                           <button
                             key={session.id}
                             type="button"
-                            className={`text-xs p-2 border rounded cursor-pointer hover:bg-gray-50 ${
+                            disabled={isResuming}
+                            className={`text-xs p-2 border rounded cursor-pointer hover:bg-gray-50 disabled:cursor-wait ${
                               session.id === activeSessionId
                                 ? "border-blue-500 bg-blue-50"
                                 : "border-gray-200"
@@ -422,8 +490,14 @@ function AcpDemo() {
                           >
                             <div className="flex items-center justify-between">
                               <span className="font-medium">{session.agentName}</span>
-                              {session.id === activeSessionId && (
+                              {session.id === activeSessionId ? (
                                 <span className="text-blue-600">●</span>
+                              ) : (
+                                !liveSessionIds.has(session.id) && (
+                                  <span className="text-gray-400">
+                                    {liveCapabilities?.loadSession ? "reload" : "ended"}
+                                  </span>
+                                )
                               )}
                             </div>
                             <div className="text-gray-600">{session.id.slice(0, 16)}...</div>
@@ -615,7 +689,13 @@ export function renderAcpDemo() {
 
 function prettyError(error: unknown): string {
   if (error instanceof JsonRpcError) {
-    return typeof error.data === "string" ? error.data : String(error.data);
+    const data: unknown = error.data;
+    if (typeof data === "string") return data;
+    // Agents usually put the useful part in data.details (e.g. "Session not found")
+    if (data && typeof data === "object" && "details" in data && typeof data.details === "string") {
+      return `${error.message}: ${data.details}`;
+    }
+    return data === undefined ? error.message : `${error.message}: ${JSON.stringify(data)}`;
   }
   return error instanceof Error ? error.message : String(error);
 }
