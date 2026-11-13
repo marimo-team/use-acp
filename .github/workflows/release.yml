@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-p-small
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -75,7 +75,7 @@ jobs:
       contents: read
 
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-p-small
     needs: build
     permissions:
       id-token: write
@@ -101,7 +101,7 @@ jobs:
           NODE_AUTH_TOKEN: "" # Clear placeholder set by setup-node to enable OIDC
 
   release-notes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-p-small
     needs: publish
     permissions:
       contents: write
@@ -121,7 +121,7 @@ jobs:
           GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
 
   notify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-p-small
     needs: [build, publish, release-notes]
     if: always()
     steps:
