@@ -76,7 +76,7 @@
     ]
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^0.4.9",
+    "@agentclientprotocol/sdk": "^1.4.0",
     "zustand": "^5.0.2"
   }
 }

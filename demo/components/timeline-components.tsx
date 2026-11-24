@@ -283,6 +283,27 @@ function SessionNotificationRenderer({ sessionData }: { sessionData: SessionUpda
         <div className="text-xs text-gray-500">Switched to mode: {sessionData.currentModeId}</div>
       );
 
+    case "session_info_update":
+      return (
+        <div className="text-xs text-gray-500">
+          Session info updated{sessionData.title ? `: ${sessionData.title}` : ""}
+        </div>
+      );
+
+    // Newer protocol updates the demo has no dedicated view for yet
+    case "plan_update":
+    case "plan_removed":
+    case "config_option_update":
+    case "usage_update":
+    case "compaction_update":
+    case "compaction_summary_chunk":
+      return (
+        <div className="space-y-1">
+          <div className="text-xs text-gray-500">{sessionData.sessionUpdate}</div>
+          <CodeBlock>{JSON.stringify(sessionData, null, 2)}</CodeBlock>
+        </div>
+      );
+
     default:
       logNever(sessionData);
       return (

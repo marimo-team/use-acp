@@ -1,4 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import {
+  type AgentCapabilities,
+  PROTOCOL_VERSION,
+  type SessionInfo,
+} from "@agentclientprotocol/sdk";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { useAcpClient } from "../src/hooks/use-acp-client.js";
 import type { SessionId } from "../src/state/types.js";
@@ -17,6 +22,8 @@ interface Session {
   id: string;
   agentId: string;
   agentName: string;
+  // Set for sessions restored from the agent's session/list
+  title?: string;
   createdAt: Date;
   lastActiveAt: Date;
 }
@@ -47,6 +54,29 @@ const AGENT_CONFIGS: [AgentConfig, AgentConfig, AgentConfig, AgentConfig] = [
     command: "Your custom agent command here",
   },
 ];
+
+// Agents without session/delete keep listing sessions the user deleted; remember them across reloads
+const DISMISSED_SESSIONS_KEY = "acp-demo:dismissed-sessions";
+
+function loadDismissedSessionIds(): Set<string> {
+  try {
+    const stored = JSON.parse(localStorage.getItem(DISMISSED_SESSIONS_KEY) ?? "[]");
+    return new Set(Array.isArray(stored) ? stored : []);
+  } catch {
+    return new Set();
+  }
+}
+
+const dismissedSessionIds = loadDismissedSessionIds();
+
+function dismissSessionId(sessionId: string) {
+  dismissedSessionIds.add(sessionId);
+  try {
+    localStorage.setItem(DISMISSED_SESSIONS_KEY, JSON.stringify([...dismissedSessionIds]));
+  } catch {
+    // Storage unavailable: the id is still filtered until the page reloads
+  }
+}
 
 function useAsync<T extends unknown[], R>(
   asyncFn: (...args: T) => Promise<R>,
@@ -81,8 +111,11 @@ function AcpDemo() {
   const [selectedAgentId, setSelectedAgentId] = useState<string>(AGENT_CONFIGS[0].id);
   const [customWsUrl, setCustomWsUrl] = useState("ws://localhost:8000/message");
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [promptText, setPromptText] = useState("");
+  // Sessions only live inside the agent process behind the current connection
+  // (stdio-to-ws spawns a fresh process per WebSocket), so track which ones it knows.
+  const [liveSessionIds, setLiveSessionIds] = useState<Set<string>>(() => new Set());
+  const [liveCapabilities, setLiveCapabilities] = useState<AgentCapabilities | null>(null);
 
   // Get current agent config
   const selectedAgent = AGENT_CONFIGS.find((a) => a.id === selectedAgentId) || AGENT_CONFIGS[0];
@@ -100,11 +133,12 @@ function AcpDemo() {
     agent: acp,
     availableCommands,
     sessionMode,
+    activeSessionId,
+    setActiveSessionId,
   } = useAcpClient({
     wsUrl,
     reconnectAttempts: 3,
     reconnectDelay: 2000,
-    initialSessionId: activeSessionId,
     sessionParams: {
       cwd: "/tmp",
       mcpServers: [],
@@ -118,38 +152,212 @@ function AcpDemo() {
   }, [notifications]);
 
   const agentName = selectedAgent?.name || "";
+  // Read inside the connection effect, which must only re-run when the connection changes
+  const selectedAgentRef = useRef({ id: selectedAgentId, name: agentName });
+  selectedAgentRef.current = { id: selectedAgentId, name: agentName };
+  // Session that was open when the user switched away from each agent, reopened on return
+  const lastSessionByAgentRef = useRef<Record<string, string>>({});
+  const pendingRestoreRef = useRef<string | null>(null);
+
+  // Every new connection is a new agent process: forget its predecessor's sessions,
+  // ask the agent what it supports (loadSession decides whether resume can work) and,
+  // when it can list sessions, pull its stored ones so they survive a page reload.
+  useEffect(() => {
+    setLiveSessionIds(new Set());
+    setLiveCapabilities(null);
+    pendingRestoreRef.current = null;
+    if (!acp) return;
+    let cancelled = false;
+    const { id: agentId, name } = selectedAgentRef.current;
+    pendingRestoreRef.current = lastSessionByAgentRef.current[agentId] ?? null;
+
+    const syncConnection = async () => {
+      const { agentCapabilities } = await acp.initialize({
+        protocolVersion: PROTOCOL_VERSION,
+        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
+      });
+      if (cancelled) return;
+      setLiveCapabilities(agentCapabilities ?? null);
+      if (!agentCapabilities?.sessionCapabilities?.list || !acp.listSessions) return;
+
+      const stored: SessionInfo[] = [];
+      let cursor: string | null | undefined;
+      do {
+        const page = await acp.listSessions({ cwd: "/tmp", cursor });
+        stored.push(...page.sessions);
+        cursor = page.nextCursor;
+      } while (cursor && !cancelled);
+      if (cancelled) return;
+
+      setSessions((prev) => {
+        const known = new Set(prev.map((s) => s.id));
+        const restored = stored
+          .filter((s) => !known.has(s.sessionId) && !dismissedSessionIds.has(s.sessionId))
+          .map((s): Session => {
+            const updatedAt = s.updatedAt ? new Date(s.updatedAt) : new Date();
+            return {
+              id: s.sessionId,
+              agentId,
+              agentName: name,
+              title: s.title ?? undefined,
+              createdAt: updatedAt,
+              lastActiveAt: updatedAt,
+            };
+          });
+        return restored.length > 0 ? [...prev, ...restored] : prev;
+      });
+    };
+
+    syncConnection().catch((error) => console.error("Syncing agent sessions failed:", error));
+    return () => {
+      cancelled = true;
+    };
+  }, [acp]);
+
+  const markSessionLive = useCallback((sessionId: string) => {
+    setLiveSessionIds((prev) => new Set(prev).add(sessionId));
+  }, []);
+
+  // Make sure the current agent process knows this session, reloading it if needed.
+  const ensureSessionLive = useCallback(
+    async (sessionId: string) => {
+      if (!acp) throw new Error("ACP not connected");
+      if (liveSessionIds.has(sessionId)) return;
+      // Until initialize answers, "can't reload" and "don't know yet" look the same
+      if (!liveCapabilities) {
+        throw new Error("Still connecting to the agent. Try again in a moment.");
+      }
+      if (!liveCapabilities.loadSession || !acp.loadSession) {
+        throw new Error(
+          "This session ended when the connection to the agent closed, and the agent cannot reload sessions. Start a new session.",
+        );
+      }
+      // The agent replays the whole conversation while loading, so drop the stale copy first
+      clearNotifications(sessionId as SessionId);
+      await acp.loadSession({ sessionId, cwd: "/tmp", mcpServers: [] });
+      markSessionLive(sessionId);
+    },
+    [acp, liveSessionIds, liveCapabilities, clearNotifications, markSessionLive],
+  );
+
   const [executeNewSession, isCreatingSession, newSessionError] = useAsync(
     useCallback(async () => {
       if (!acp) throw new Error("ACP not connected");
-      return acp
-        .newSession({
+      try {
+        const response = await acp.newSession({
           cwd: "/tmp",
           mcpServers: [],
-        })
-        .then((response) => {
-          // Add session to our tracking
-          const newSession: Session = {
-            id: response.sessionId,
-            agentId: selectedAgentId,
-            agentName: agentName,
-            createdAt: new Date(),
-            lastActiveAt: new Date(),
-          };
-          setSessions((prev) => [...prev, newSession]);
-          setActiveSessionId(response.sessionId);
-          return response;
-        })
-        .catch((error) => {
-          console.error("New session error:", error);
-          throw error;
         });
-    }, [acp, selectedAgentId, agentName]),
+        // Add session to our tracking
+        const newSession: Session = {
+          id: response.sessionId,
+          agentId: selectedAgentId,
+          agentName: agentName,
+          createdAt: new Date(),
+          lastActiveAt: new Date(),
+        };
+        setSessions((prev) => [...prev, newSession]);
+        markSessionLive(response.sessionId);
+        setActiveSessionId(response.sessionId as SessionId);
+        return response;
+      } catch (error) {
+        console.error("New session error:", error);
+        throw error;
+      }
+    }, [acp, selectedAgentId, agentName, markSessionLive, setActiveSessionId]),
+  );
+
+  // session/load replays the whole conversation and can take several seconds
+  const [reopeningSessionId, setReopeningSessionId] = useState<string | null>(null);
+  const acpRef = useRef(acp);
+  acpRef.current = acp;
+
+  const [executeResume, isResuming, resumeError] = useAsync(
+    useCallback(
+      async (sessionId: string) => {
+        const connection = acp;
+        if (!liveSessionIds.has(sessionId)) setReopeningSessionId(sessionId);
+        try {
+          await ensureSessionLive(sessionId);
+        } catch (error) {
+          // Switching agents mid-load closes the connection and rejects the request;
+          // that is the user moving on, not a failure worth reporting
+          if (acpRef.current !== connection) return;
+          throw error;
+        } finally {
+          setReopeningSessionId((current) => (current === sessionId ? null : current));
+        }
+        if (acpRef.current !== connection) return;
+        setSessions((prev) =>
+          prev.map((s) => (s.id === sessionId ? { ...s, lastActiveAt: new Date() } : s)),
+        );
+        setActiveSessionId(sessionId as SessionId);
+      },
+      [acp, liveSessionIds, ensureSessionLive, setActiveSessionId],
+    ),
+  );
+  const reopeningSession = sessions.find((s) => s.id === reopeningSessionId);
+  const reopeningLabel = reopeningSession?.title ?? reopeningSessionId?.slice(0, 16);
+
+  // Back on an agent: reopen the session that was active when the user left it,
+  // once initialize has confirmed the agent can reload sessions
+  useEffect(() => {
+    const sessionId = pendingRestoreRef.current;
+    if (!sessionId || !liveCapabilities?.loadSession) return;
+    pendingRestoreRef.current = null;
+    void executeResume(sessionId);
+  }, [liveCapabilities, executeResume]);
+
+  // Delete sessions one by one on the agent (when it supports session/delete) and forget them locally.
+  // Stops at the first failure so the list still shows what was not deleted.
+  const [executeDelete, isDeleting, deleteError] = useAsync(
+    useCallback(
+      async (sessionIds: string[]) => {
+        if (!acp) throw new Error("ACP not connected");
+        const canClose = !!liveCapabilities?.sessionCapabilities?.close;
+        const canDelete = !!liveCapabilities?.sessionCapabilities?.delete;
+        for (const sessionId of sessionIds) {
+          // Stop any running work before the session disappears
+          if (canClose && liveSessionIds.has(sessionId) && acp.closeSession) {
+            await acp.closeSession({ sessionId });
+          }
+          if (canDelete && acp.deleteSession) {
+            await acp.deleteSession({ sessionId });
+          } else {
+            dismissSessionId(sessionId);
+          }
+
+          setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+          setLiveSessionIds((prev) => {
+            const next = new Set(prev);
+            next.delete(sessionId);
+            return next;
+          });
+          clearNotifications(sessionId as SessionId);
+          if (activeSessionId === sessionId) setActiveSessionId(null);
+          for (const [agentId, lastId] of Object.entries(lastSessionByAgentRef.current)) {
+            if (lastId === sessionId) delete lastSessionByAgentRef.current[agentId];
+          }
+          if (pendingRestoreRef.current === sessionId) pendingRestoreRef.current = null;
+        }
+      },
+      [
+        acp,
+        liveCapabilities,
+        liveSessionIds,
+        activeSessionId,
+        clearNotifications,
+        setActiveSessionId,
+      ],
+    ),
   );
 
   const [executePrompt, isPrompting, promptError] = useAsync(
     useCallback(
       async (text: string) => {
         if (!acp || !activeSessionId) throw new Error("ACP not connected or no active session");
+        // A reconnect (e.g. Disconnect → Connect) keeps the session selected but not alive
+        await ensureSessionLive(activeSessionId);
         return acp.prompt({
           sessionId: activeSessionId,
           prompt: [
@@ -160,7 +368,7 @@ function AcpDemo() {
           ],
         });
       },
-      [acp, activeSessionId],
+      [acp, activeSessionId, ensureSessionLive],
     ),
   );
 
@@ -227,25 +435,34 @@ function AcpDemo() {
     }
   };
 
-  const handleResumeSession = (sessionId: string) => {
-    setSessions((prev) =>
-      prev.map((s) => (s.id === sessionId ? { ...s, lastActiveAt: new Date() } : s)),
-    );
-    setActiveSessionId(sessionId);
+  const handleResumeSession = async (sessionId: string) => {
+    await executeResume(sessionId);
   };
 
   const handleAgentChange = (agentId: string) => {
-    setSelectedAgentId(agentId);
-    // Clear active session when changing agents unless it belongs to the new agent
-    const currentSession = sessions.find((s) => s.id === activeSessionId);
-    if (currentSession?.agentId !== agentId) {
-      setActiveSessionId(null);
+    if (activeSessionId) {
+      lastSessionByAgentRef.current[selectedAgentId] = activeSessionId;
     }
+    setSelectedAgentId(agentId);
+    // Switching agents closes the current connection, so no session stays active
+    setActiveSessionId(null);
   };
 
-  const handleClearAllSessions = () => {
-    setSessions([]);
-    setActiveSessionId(null);
+  // Only the selected agent's sessions can be resumed over the current connection
+  const agentSessions = sessions
+    .filter((s) => s.agentId === selectedAgentId)
+    .sort((a, b) => b.lastActiveAt.getTime() - a.lastActiveAt.getTime());
+
+  const handleClearAllSessions = async () => {
+    const count = agentSessions.length;
+    if (!window.confirm(`Delete all ${count} session${count === 1 ? "" : "s"} for ${agentName}?`)) {
+      return;
+    }
+    await executeDelete(agentSessions.map((s) => s.id));
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    await executeDelete([sessionId]);
   };
 
   const handleSlashCommand = (commandName: string) => {
@@ -371,11 +588,23 @@ function AcpDemo() {
                   )}
                 </div>
 
-                {(newSessionError || promptError || cancelError || setModeError) && (
+                {(newSessionError ||
+                  resumeError ||
+                  deleteError ||
+                  promptError ||
+                  cancelError ||
+                  setModeError) && (
                   <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-3">
                     <h4 className="font-medium text-red-800 text-sm mb-1">Error</h4>
                     <p className="text-sm text-red-700">
-                      {prettyError(newSessionError || promptError || cancelError || setModeError)}
+                      {prettyError(
+                        newSessionError ||
+                          resumeError ||
+                          deleteError ||
+                          promptError ||
+                          cancelError ||
+                          setModeError,
+                      )}
                     </p>
                   </div>
                 )}
@@ -390,7 +619,7 @@ function AcpDemo() {
                     {isCreatingSession ? "Creating..." : `New Session (${agentName})`}
                   </button>
 
-                  {sessions.length > 0 && (
+                  {agentSessions.length > 0 && (
                     <div>
                       <div className="flex items-center justify-between mb-2">
                         <label
@@ -402,35 +631,79 @@ function AcpDemo() {
                         <button
                           type="button"
                           onClick={handleClearAllSessions}
+                          disabled={isDeleting}
                           id="clearAllSessions"
-                          className="text-xs text-red-600 hover:text-red-800"
+                          className="text-xs text-red-600 hover:text-red-800 disabled:text-gray-400 disabled:cursor-wait"
                         >
-                          Clear All
+                          {isDeleting ? "Deleting..." : "Clear All"}
                         </button>
                       </div>
                       <div className="space-y-1 max-h-24 overflow-y-auto">
-                        {sessions.map((session) => (
-                          <button
+                        {agentSessions.map((session) => (
+                          <div
                             key={session.id}
-                            type="button"
-                            className={`text-xs p-2 border rounded cursor-pointer hover:bg-gray-50 ${
+                            className={`flex items-stretch border rounded ${
                               session.id === activeSessionId
                                 ? "border-blue-500 bg-blue-50"
                                 : "border-gray-200"
                             }`}
-                            onClick={() => handleResumeSession(session.id)}
                           >
-                            <div className="flex items-center justify-between">
-                              <span className="font-medium">{session.agentName}</span>
-                              {session.id === activeSessionId && (
-                                <span className="text-blue-600">●</span>
+                            <button
+                              type="button"
+                              disabled={isResuming || isDeleting || !liveCapabilities}
+                              className="flex-1 min-w-0 text-left text-xs p-2 cursor-pointer hover:bg-gray-50 disabled:cursor-wait"
+                              onClick={() => handleResumeSession(session.id)}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-medium">{session.agentName}</span>
+                                {session.id === activeSessionId ? (
+                                  <span className="text-blue-600">●</span>
+                                ) : (
+                                  !liveSessionIds.has(session.id) && (
+                                    <span className="text-gray-400">
+                                      {!liveCapabilities
+                                        ? "connecting…"
+                                        : liveCapabilities.loadSession
+                                          ? "reload"
+                                          : "ended"}
+                                    </span>
+                                  )
+                                )}
+                              </div>
+                              {session.title && (
+                                <div className="text-gray-800 truncate">{session.title}</div>
                               )}
-                            </div>
-                            <div className="text-gray-600">{session.id.slice(0, 16)}...</div>
-                            <div className="text-gray-500">
-                              {session.lastActiveAt.toLocaleTimeString()}
-                            </div>
-                          </button>
+                              <div className="text-gray-600">{session.id.slice(0, 16)}...</div>
+                              <div className="text-gray-500">
+                                {session.lastActiveAt.toLocaleTimeString()}
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="Delete session"
+                              title="Delete session"
+                              disabled={isDeleting || isResuming}
+                              onClick={() => handleDeleteSession(session.id)}
+                              className="px-2 text-gray-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-wait"
+                            >
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                className="w-4 h-4"
+                                aria-hidden="true"
+                              >
+                                <path d="M3 6h18" />
+                                <path d="M8 6V4h8v2" />
+                                <path d="M19 6l-1 14H6L5 6" />
+                                <path d="M10 11v6M14 11v6" />
+                              </svg>
+                            </button>
+                          </div>
                         ))}
                       </div>
                     </div>
@@ -583,8 +856,14 @@ function AcpDemo() {
               <h2 className="text-lg font-semibold text-gray-800">
                 {selectedAgent.name} Conversation ({notifications.length})
               </h2>
-              {activeSessionId && (
-                <p className="text-sm text-gray-600">Session: {activeSessionId.slice(0, 16)}...</p>
+              {reopeningSessionId ? (
+                <p className="text-sm text-blue-600">Reopening "{reopeningLabel}"...</p>
+              ) : (
+                activeSessionId && (
+                  <p className="text-sm text-gray-600">
+                    Session: {activeSessionId.slice(0, 16)}...
+                  </p>
+                )
               )}
             </div>
             <button
@@ -598,7 +877,13 @@ function AcpDemo() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
-          <NotificationTimeline notifications={notifications} maxItems={200} />
+          {reopeningSessionId ? (
+            <div className="text-center text-sm text-gray-500 py-8">
+              Reopening "{reopeningLabel}"... the agent is replaying the conversation.
+            </div>
+          ) : (
+            <NotificationTimeline notifications={notifications} maxItems={200} />
+          )}
         </div>
       </div>
     </div>
@@ -615,7 +900,14 @@ export function renderAcpDemo() {
 
 function prettyError(error: unknown): string {
   if (error instanceof JsonRpcError) {
-    return typeof error.data === "string" ? error.data : String(error.data);
+    const data: unknown = error.data;
+    // A wrapped plain Error carries its stack trace as data; the message reads better
+    if (typeof data === "string") return data.includes("\n    at ") ? error.message : data;
+    // Agents usually put the useful part in data.details (e.g. "Session not found")
+    if (data && typeof data === "object" && "details" in data && typeof data.details === "string") {
+      return `${error.message}: ${data.details}`;
+    }
+    return data === undefined ? error.message : `${error.message}: ${JSON.stringify(data)}`;
   }
   return error instanceof Error ? error.message : String(error);
 }
