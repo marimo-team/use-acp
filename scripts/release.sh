@@ -8,4 +8,4 @@ if [[ ! "$1" =~ ^(patch|minor|major|(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0
   printf 'Expected patch, minor, major, or a stable X.Y.Z version.\n' >&2
   exit 2
 fi
-exec gh workflow run release-pr.yml --repo marimo-team/use-acp --ref main -f "version=$1"
+GITHUB_REPOSITORY=marimo-team/use-acp exec gh release-control request "$1"
